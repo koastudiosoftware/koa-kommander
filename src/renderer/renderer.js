@@ -1,6 +1,6 @@
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25] },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25] }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc' },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc' }
 };
 let activeSide = 'left';
 let clipboard = null;
@@ -121,9 +121,20 @@ function entryAttributes(entry, side, index, tile = false) {
 function renderEntries(side) {
   const panel = panels[side];
   if (panel.view === 'details') {
-    const rows = panel.entries.map((entry, index) => `<tr ${entryAttributes(entry, side, index)}><td><div class="name-cell"><span class="file-icon ${kind(entry)}">${icon(kind(entry))}</span><span class="file-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span></div></td><td>${formatSize(entry.size, entry.isDirectory)}</td><td class="date-cell">${formatDate(entry.modified)}</td></tr>`).join('');
+    const sortedEntries = [...panel.entries].sort((a, b) => {
+      let comparison = 0;
+      if (panel.sortBy === 'name') comparison = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      else if (panel.sortBy === 'size') comparison = (a.size || 0) - (b.size || 0);
+      else comparison = new Date(a.modified || 0).getTime() - new Date(b.modified || 0).getTime();
+      return comparison * (panel.sortDirection === 'asc' ? 1 : -1);
+    });
+    const rows = sortedEntries.map((entry) => {
+      const index = panel.entries.indexOf(entry);
+      return `<tr ${entryAttributes(entry, side, index)}><td><div class="name-cell"><span class="file-icon ${kind(entry)}">${icon(kind(entry))}</span><span class="file-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span></div></td><td>${formatSize(entry.size, entry.isDirectory)}</td><td class="date-cell">${formatDate(entry.modified)}</td></tr>`;
+    }).join('');
     const colgroup = panel.columns.map((width) => `<col style="width:${width}%">`).join('');
-    return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr><th>Name<span class="column-grip" data-column-boundary="0" title="Resize Name column" aria-label="Resize Name column"></span></th><th>Size<span class="column-grip" data-column-boundary="1" title="Resize Size column" aria-label="Resize Size column"></span></th><th>Date modified</th></tr></thead><tbody>${rows}</tbody></table>${panel.entries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
+    const heading = (key, label, boundary = null) => `<th><button class="column-sort" data-sort="${key}">${label}${panel.sortBy === key ? `<span class="sort-arrow" aria-label="sorted ${panel.sortDirection === 'asc' ? 'ascending' : 'descending'}">${panel.sortDirection === 'asc' ? '▲' : '▼'}</span>` : ''}</button>${boundary === null ? '' : `<span class="column-grip" data-column-boundary="${boundary}" title="Resize ${label} column" aria-label="Resize ${label} column"></span>`}</th>`;
+    return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr>${heading('name', 'Name', 0)}${heading('size', 'Size', 1)}${heading('modified', 'Date modified')}</tr></thead><tbody>${rows}</tbody></table>${panel.entries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
   }
   const tileSize = Math.round(panel.iconSize * 1.9);
   const tiles = panel.entries.map((entry, index) => `<div ${entryAttributes(entry, side, index, true)}><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
@@ -180,6 +191,12 @@ function bindPanel(side) {
   element.querySelectorAll('[data-crumb]').forEach((crumb) => crumb.addEventListener('click', () => {
     const part = pathParts(panel.path)[Number(crumb.dataset.crumb)];
     if (part) navigate(side, part.path);
+  }));
+  element.querySelectorAll('[data-sort]').forEach((heading) => heading.addEventListener('click', () => {
+    const column = heading.dataset.sort;
+    if (panel.sortBy === column) panel.sortDirection = panel.sortDirection === 'asc' ? 'desc' : 'asc';
+    else { panel.sortBy = column; panel.sortDirection = 'asc'; }
+    renderPanel(side);
   }));
   element.querySelectorAll('[data-column-boundary]').forEach((grip) => {
     let startX = 0;

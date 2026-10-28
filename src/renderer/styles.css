@@ -47,3 +47,6 @@
 
 .path-home{padding:0;border:0;background:transparent;cursor:pointer}
 
+
+.panel.is-active .pathbar{background:#edf4fc;border-color:#d8e5f3}
+

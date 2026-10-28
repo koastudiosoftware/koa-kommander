@@ -89,6 +89,7 @@ function panelChrome(side) {
   </div>
   <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-spacer"></span>
     <div class="view-group"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Icons">${gridIcon('icons')}</button></div>
+    <button class="toolbar-button icon-only" data-action="match-other" aria-label="${side === 'left' ? 'Match right panel folder' : 'Match left panel folder'}" title="${side === 'left' ? 'Go to right panel folder' : 'Go to left panel folder'}">${actionIcon(side === 'left' ? 'left' : 'right')}</button>
     ${panel.view === 'icons' ? `<label class="size-control" title="Icon size">${panel.iconSize}<input type="range" min="32" max="112" step="8" value="${panel.iconSize}" data-action="icon-size"></label>` : ''}
   </div>`;
 }
@@ -102,6 +103,8 @@ function actionIcon(name) {
   const icons = {
     'new-folder': '<path d="M3 6.5h7l2 2h9v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 11v6M9 14h6"/>',    up: '<path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/>',
     refresh: '<path d="M4.5 9A8 8 0 0 1 18 5.5L20 9"/><path d="M20 9l-4.5-.3M20 9l-.4-4.5"/><path d="M19.5 15A8 8 0 0 1 6 18.5L4 15"/><path d="M4 15l4.5.3M4 15l.4 4.5"/>',
+    left: '<path d="M12 19l-7-7 7-7"/>',
+    right: '<path d="m12 5 7 7-7 7"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
     cut: '<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><path d="m8 7 12 12M8 17 20 5"/>',
     paste: '<path d="M9 4.5h6a2 2 0 0 1 2 2V8H7V6.5a2 2 0 0 1 2-2Z"/><path d="M7 6H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2M7 8h10M15 15h7M18.5 11.5v7"/>',
@@ -221,6 +224,10 @@ function bindPanel(side) {
   });
   element.querySelectorAll('[data-action="up"]').forEach((button) => button.addEventListener('click', () => navigate(side, pathParts(panel.path).length > 1 ? pathParts(panel.path).at(-2).path : panel.path)));
   element.querySelectorAll('[data-action="refresh"]').forEach((button) => button.addEventListener('click', () => navigate(side, panel.path)));
+  element.querySelector('[data-action="match-other"]')?.addEventListener('click', () => {
+    const otherSide = side === 'left' ? 'right' : 'left';
+    if (panels[otherSide].path) navigate(side, panels[otherSide].path);
+  });
   element.querySelectorAll('[data-entry]').forEach((row) => {
     const entry = panel.entries[Number(row.dataset.entry)];
     row.addEventListener('click', (event) => {

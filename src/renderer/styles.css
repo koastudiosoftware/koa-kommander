@@ -20,3 +20,21 @@
 .dummy-tool:hover{background:#f5f7f6}
 .dummy-tool svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .tool-divider{width:1px;height:18px;margin:0 5px;background:#e5e9ec}
+
+/* Keep the panels open at the edges; use only the center gutter for separation. */
+.workspace{padding:12px 16px 12px 14px}
+.panel,.panel.is-active{border:0;border-radius:5px;box-shadow:none}
+.splitter{width:24px;flex:0 0 24px;position:relative}
+.splitter div{width:1px;height:100%;max-height:none;border-radius:0;background:#dfe4e6}
+
+/* Let the panels meet the window edges; reserve the workspace gutter for the center only. */
+.workspace{padding:0}
+.panel,.panel.is-active{border-radius:0}
+.splitter div{display:none}
+
+.splitter{width:12px;flex:0 0 12px}
+
+
+/* Placeholder grip for a future adjustable panel divider. */
+.splitter>.splitter-handle{display:grid;width:10px;height:42px;flex:0 0 auto;grid-template-columns:repeat(2,2px);grid-template-rows:repeat(3,2px);gap:3px;align-content:center;justify-content:center;border:1px solid #dce1df;border-radius:6px;background:#f7f8f7;box-shadow:0 1px 2px #1d2a2414}
+.splitter-handle span{width:2px;height:2px;border-radius:50%;background:#98a29c}

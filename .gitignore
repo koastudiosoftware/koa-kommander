@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Electron build and distribution output
+dist/
+out/
+release/
+build/
+artifacts/
+
+# Electron Forge / builder caches
+.electron-gyp/
+.electron-builder-cache/
+.electron-forge/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Runtime and test coverage
+*.pid
+*.pid.lock
+coverage/
+.nyc_output/
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+

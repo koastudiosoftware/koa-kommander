@@ -1,0 +1,13 @@
+{
+  "name": "koa-kommander",
+  "version": "0.1.0",
+  "description": "A focused dual-panel file manager for Windows",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.10.0"
+  }
+}

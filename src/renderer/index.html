@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
+  <title>Koa Kommander</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
+    <div class="brand-name">koa<span>kommander</span></div>
+    <div class="header-divider"></div>
+    <div class="header-caption">File workspace</div>
+    <div class="header-spacer"></div>
+    <div class="shortcut-hint"><kbd>Ctrl</kbd><span>+</span><kbd>C</kbd> copy&nbsp; · &nbsp;<kbd>Ctrl</kbd><span>+</span><kbd>V</kbd> paste</div>
+  </header>
+
+  <main class="workspace">
+    <section class="panel is-active" id="panel-left" data-panel="left" aria-label="Left file panel"></section>
+    <div class="splitter" aria-hidden="true"><div></div></div>
+    <section class="panel" id="panel-right" data-panel="right" aria-label="Right file panel"></section>
+  </main>
+
+  <footer class="statusbar">
+    <div class="status-left"><span class="status-dot"></span><span id="status-message">Ready</span></div>
+    <div class="status-right"><span id="selection-summary">Nothing selected</span><span class="status-separator"></span><span>2 panels</span></div>
+  </footer>
+
+  <div class="context-menu" id="context-menu" role="menu" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="./renderer.js"></script>
+</body>
+</html>

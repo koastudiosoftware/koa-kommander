@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
@@ -105,19 +105,35 @@ ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation }
   return results;
 });
 
-ipcMain.handle('fs:delete', async (_event, entries) => {
+ipcMain.handle('fs:delete', async (event, entries) => {
+  const count = entries.length;
+  const confirmation = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+    type: 'warning',
+    title: 'Confirm deletion',
+    message: count === 1 ? 'Delete this item?' : `Delete these ${count} items?`,
+    detail: 'By default, items are moved to the Recycle Bin.',
+    checkboxLabel: 'Permanently delete?',
+    checkboxChecked: false,
+    buttons: ['Delete', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true
+  });
+  if (confirmation.response !== 0) return { cancelled: true, permanent: false, results: [] };
+
+  const permanent = confirmation.checkboxChecked;
   const results = [];
   for (const item of entries) {
     try {
-      await shell.trashItem(path.resolve(item));
+      if (permanent) await fs.rm(path.resolve(item), { recursive: true, force: false });
+      else await shell.trashItem(path.resolve(item));
       results.push({ path: item, ok: true });
     } catch (error) {
       results.push({ path: item, ok: false, error: error.message });
     }
   }
-  return results;
+  return { cancelled: false, permanent, results };
 });
-
 ipcMain.handle('fs:open', async (_event, itemPath) => {
   const resolved = path.resolve(itemPath);
   const stats = await fs.stat(resolved);
@@ -166,4 +182,5 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
 

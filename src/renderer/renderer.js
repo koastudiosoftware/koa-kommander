@@ -272,12 +272,15 @@ async function pasteSelection() {
 async function deleteSelection(side) {
   const items = getSelected(side);
   if (!items.length) return;
-  const result = await window.fileManager.delete(items.map((item) => item.path));
-  const failed = result.find((item) => !item.ok);
+  const outcome = await window.fileManager.delete(items.map((item) => item.path));
+  if (outcome.cancelled) return;
+  const failed = outcome.results.find((item) => !item.ok);
+  const succeeded = outcome.results.filter((item) => item.ok).length;
   await navigate(side, panels[side].path);
-  toast(failed ? failed.error : `Moved ${items.length} item${items.length === 1 ? '' : 's'} to the Recycle Bin`);
-}
-async function renameSelection(side) {
+  if (failed) toast(failed.error);
+  else if (outcome.permanent) toast(`Permanently deleted ${succeeded} item${succeeded === 1 ? '' : 's'}`);
+  else toast(`Moved ${succeeded} item${succeeded === 1 ? '' : 's'} to the Recycle Bin`);
+}async function renameSelection(side) {
   const selected = getSelected(side);
   if (!selected.length) { toast('Select one item to rename'); return; }
   if (selected.length > 1) { toast('Rename one item at a time'); return; }
@@ -426,5 +429,6 @@ splitterElement.addEventListener('keydown', (event) => {
     setPanelRatio(panelRatio + (event.key === 'ArrowRight' ? 0.01 : -0.01));
   }
 });
+
 
 

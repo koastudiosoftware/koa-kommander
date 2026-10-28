@@ -5,9 +5,23 @@ const panels = {
 let activeSide = 'left';
 let clipboard = null;
 let toastTimer;
+const defaultPreferences = { showHidden: false, groupFolders: true, theme: 'system', bookmarks: [] };
+let preferences;
+try { preferences = { ...defaultPreferences, ...JSON.parse(localStorage.getItem('koa-settings') || '{}') }; }
+catch { preferences = { ...defaultPreferences }; }
+if (!Array.isArray(preferences.bookmarks)) preferences.bookmarks = [];
 const status = document.querySelector('#status-message');
 const summary = document.querySelector('#selection-summary');
 const menu = document.querySelector('#context-menu');
+const settingsBackdrop = document.querySelector('#settings-backdrop');
+const settingsContent = document.querySelector('#settings-content');
+let settingsCategory = 'files';
+
+function savePreferences() {
+  localStorage.setItem('koa-settings', JSON.stringify(preferences));
+  document.documentElement.dataset.theme = preferences.theme;
+}
+savePreferences();
 
 const icon = (name) => {
   const paths = {
@@ -121,8 +135,10 @@ function entryAttributes(entry, side, index, tile = false) {
 function renderEntries(side) {
   const panel = panels[side];
   if (panel.view === 'details') {
-    const sortedEntries = [...panel.entries].sort((a, b) => {
+    const visibleEntries = panel.entries.filter((entry) => preferences.showHidden || !entry.name.startsWith('.'));
+    const sortedEntries = [...visibleEntries].sort((a, b) => {
       let comparison = 0;
+      if (preferences.groupFolders && a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
       if (panel.sortBy === 'name') comparison = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       else if (panel.sortBy === 'size') comparison = (a.size || 0) - (b.size || 0);
       else comparison = new Date(a.modified || 0).getTime() - new Date(b.modified || 0).getTime();
@@ -134,11 +150,17 @@ function renderEntries(side) {
     }).join('');
     const colgroup = panel.columns.map((width) => `<col style="width:${width}%">`).join('');
     const heading = (key, label, boundary = null) => `<th><button class="column-sort" data-sort="${key}">${label}${panel.sortBy === key ? `<span class="sort-arrow" aria-label="sorted ${panel.sortDirection === 'asc' ? 'ascending' : 'descending'}">${panel.sortDirection === 'asc' ? '▲' : '▼'}</span>` : ''}</button>${boundary === null ? '' : `<span class="column-grip" data-column-boundary="${boundary}" title="Resize ${label} column" aria-label="Resize ${label} column"></span>`}</th>`;
-    return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr>${heading('name', 'Name', 0)}${heading('size', 'Size', 1)}${heading('modified', 'Date modified')}</tr></thead><tbody>${rows}</tbody></table>${panel.entries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
+    const emptyState = visibleEntries.length ? '' : `<div class="empty-state">${icon('folder')}<strong>${panel.entries.length ? 'No visible items' : 'This folder is empty'}</strong><span>${panel.entries.length ? 'Hidden items are not shown' : 'Drop files here to add them'}</span></div>`;
+    return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr>${heading('name', 'Name', 0)}${heading('size', 'Size', 1)}${heading('modified', 'Date modified')}</tr></thead><tbody>${rows}</tbody></table>${emptyState}</div>`;
   }
   const tileSize = Math.round(panel.iconSize * 1.9);
-  const tiles = panel.entries.map((entry, index) => `<div ${entryAttributes(entry, side, index, true)}><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
-  return `<div class="file-area"><div class="icon-grid" style="--tile-width:${tileSize}px">${tiles}</div>${panel.entries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
+  const visibleEntries = panel.entries.filter((entry) => preferences.showHidden || !entry.name.startsWith('.'));
+  const orderedEntries = [...visibleEntries].sort((a, b) => {
+    if (preferences.groupFolders && a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  });
+  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)}><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
+  return `<div class="file-area"><div class="icon-grid" style="--tile-width:${tileSize}px">${tiles}</div>${visibleEntries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
 }
 function renderPanel(side) {
   const panel = panels[side];
@@ -154,6 +176,30 @@ function updateSummary() {
   const count = panel.selected.size;
   const bytes = panel.entries.filter((entry) => panel.selected.has(entry.path)).reduce((sum, entry) => sum + (entry.size || 0), 0);
   summary.textContent = count ? `${count} selected · ${formatSize(bytes, false)}` : 'Nothing selected';
+}
+function bookmarkLabel(directory) {
+  return directory.split(/[\\/]/).filter(Boolean).at(-1) || directory;
+}
+function renderSettingsCategory() {
+  document.querySelectorAll('.settings-category').forEach((button) => button.classList.toggle('active', button.dataset.category === settingsCategory));
+  if (settingsCategory === 'files') {
+    settingsContent.innerHTML = `<h2>Files &amp; Folders</h2><p class="settings-description">Choose which items appear and how they are arranged.</p><label class="setting-option"><span><strong>Show hidden files</strong><small>Include dot-prefixed files and folders in the panels.</small></span><input type="checkbox" data-preference="showHidden" ${preferences.showHidden ? 'checked' : ''}></label><label class="setting-option"><span><strong>Group folders before files</strong><small>Keep folders at the top of each panel.</small></span><input type="checkbox" data-preference="groupFolders" ${preferences.groupFolders ? 'checked' : ''}></label>`;
+  } else if (settingsCategory === 'theme') {
+    settingsContent.innerHTML = `<h2>Theme</h2><p class="settings-description">Choose the appearance used by the file manager.</p><label class="setting-field"><span>Color theme</span><select data-preference="theme"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>System</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>`;
+  } else {
+    const bookmarks = preferences.bookmarks.map((directory, index) => `<div class="bookmark-row"><button class="bookmark-open" data-bookmark="${index}" title="${escapeHtml(directory)}"><strong>${escapeHtml(bookmarkLabel(directory))}</strong><small>${escapeHtml(directory)}</small></button><button class="bookmark-remove" data-remove-bookmark="${index}" aria-label="Remove bookmark" title="Remove bookmark">×</button></div>`).join('');
+    settingsContent.innerHTML = `<h2>Bookmarks</h2><p class="settings-description">Save frequently used folders for quick access.</p><button class="settings-primary" data-add-bookmark>Add current folder</button><div class="bookmark-list">${bookmarks || '<p class="settings-empty">No bookmarks yet.</p>'}</div>`;
+  }
+}
+function openSettings() {
+  settingsCategory = 'files';
+  renderSettingsCategory();
+  settingsBackdrop.hidden = false;
+  document.querySelector('#settings-close').focus();
+}
+function closeSettings() {
+  settingsBackdrop.hidden = true;
+  document.querySelector('#settings-button').focus();
 }
 function getSelected(side) {
   const panel = panels[side];
@@ -386,6 +432,10 @@ document.addEventListener('click', (event) => {
   if (action === 'new-folder') createFolder(activeSide);
 });
 document.addEventListener('keydown', async (event) => {
+  if (!settingsBackdrop.hidden) {
+    if (event.key === 'Escape') closeSettings();
+    return;
+  }
   const mod = event.ctrlKey || event.metaKey;
   if (mod && event.key.toLowerCase() === 'c') { event.preventDefault(); copySelection(activeSide, false); }
   else if (mod && event.key.toLowerCase() === 'x') { event.preventDefault(); copySelection(activeSide, true); }
@@ -395,7 +445,50 @@ document.addEventListener('keydown', async (event) => {
     const entry = getSelected(activeSide)[0];
     if (entry) { const result = await window.fileManager.open(entry.path); if (result.navigateTo) navigate(activeSide, result.navigateTo); }
   }
-  else if (event.key === 'Escape') menu.hidden = true;
+  else if (event.key === 'Escape') {
+    menu.hidden = true;
+    if (!settingsBackdrop.hidden) closeSettings();
+  }
+});
+
+document.querySelector('#settings-button').addEventListener('click', openSettings);
+document.querySelector('#settings-close').addEventListener('click', closeSettings);
+document.querySelectorAll('.settings-category').forEach((button) => button.addEventListener('click', () => {
+  settingsCategory = button.dataset.category;
+  renderSettingsCategory();
+}));
+settingsContent.addEventListener('change', (event) => {
+  const control = event.target.closest('[data-preference]');
+  if (!control) return;
+  preferences[control.dataset.preference] = control.type === 'checkbox' ? control.checked : control.value;
+  savePreferences();
+  if (control.dataset.preference === 'showHidden' || control.dataset.preference === 'groupFolders') {
+    renderPanel('left');
+    renderPanel('right');
+  }
+});
+settingsContent.addEventListener('click', (event) => {
+  if (event.target.closest('[data-add-bookmark]')) {
+    const currentPath = panels[activeSide].path;
+    if (!currentPath) return;
+    if (preferences.bookmarks.includes(currentPath)) { toast('That folder is already bookmarked'); return; }
+    preferences.bookmarks.push(currentPath);
+    savePreferences();
+    renderSettingsCategory();
+    return;
+  }
+  const remove = event.target.closest('[data-remove-bookmark]');
+  if (remove) {
+    preferences.bookmarks.splice(Number(remove.dataset.removeBookmark), 1);
+    savePreferences();
+    renderSettingsCategory();
+    return;
+  }
+  const open = event.target.closest('[data-bookmark]');
+  if (open) {
+    const directory = preferences.bookmarks[Number(open.dataset.bookmark)];
+    if (directory) { closeSettings(); navigate(activeSide, directory); }
+  }
 });
 
 async function initialize() {

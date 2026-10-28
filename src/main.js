@@ -48,6 +48,14 @@ ipcMain.handle('fs:roots', async () => {
   return roots;
 });
 
+ipcMain.handle('dialog:choose-directory', async (event) => {
+  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
+    title: 'Choose a directory',
+    properties: ['openDirectory']
+  });
+  return result.canceled ? null : result.filePaths[0] || null;
+});
+
 ipcMain.handle('fs:list', async (_event, directory) => {
   const current = path.resolve(directory || app.getPath('home'));
   const entries = await fs.readdir(current, { withFileTypes: true });
@@ -105,9 +113,9 @@ ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation }
   return results;
 });
 
-ipcMain.handle('fs:delete', async (event, entries) => {
+ipcMain.handle('fs:delete', async (event, { entries, confirm }) => {
   const count = entries.length;
-  const confirmation = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+  const confirmation = confirm ? await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
     type: 'warning',
     title: 'Confirm deletion',
     message: count === 1 ? 'Delete this item?' : `Delete these ${count} items?`,
@@ -118,7 +126,7 @@ ipcMain.handle('fs:delete', async (event, entries) => {
     defaultId: 1,
     cancelId: 1,
     noLink: true
-  });
+  }) : { response: 0, checkboxChecked: false };
   if (confirmation.response !== 0) return { cancelled: true, permanent: false, results: [] };
 
   const permanent = confirmation.checkboxChecked;

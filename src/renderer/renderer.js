@@ -5,17 +5,21 @@ const panels = {
 let activeSide = 'left';
 let clipboard = null;
 let toastTimer;
-const defaultPreferences = { showHidden: false, groupFolders: true, theme: 'system', bookmarks: [] };
+const defaultPreferences = { showHidden: false, groupFolders: true, confirmDelete: true, dateFormat: 'us', timeFormat: '12h', theme: 'system', directorySets: [] };
 let preferences;
-try { preferences = { ...defaultPreferences, ...JSON.parse(localStorage.getItem('koa-settings') || '{}') }; }
-catch { preferences = { ...defaultPreferences }; }
-if (!Array.isArray(preferences.bookmarks)) preferences.bookmarks = [];
+let savedPreferences = {};
+try { savedPreferences = JSON.parse(localStorage.getItem('koa-settings') || '{}'); }
+catch { savedPreferences = {}; }
+preferences = { ...defaultPreferences, ...savedPreferences };
+if (!Array.isArray(savedPreferences.directorySets)) preferences.directorySets = (savedPreferences.bookmarks || []).map((directory) => ({ type: 'single', path: directory, openIn: 'active', name: '' }));
+delete preferences.bookmarks;
 const status = document.querySelector('#status-message');
 const summary = document.querySelector('#selection-summary');
 const menu = document.querySelector('#context-menu');
 const settingsBackdrop = document.querySelector('#settings-backdrop');
 const settingsContent = document.querySelector('#settings-content');
 let settingsCategory = 'files';
+let directorySetDraft = null;
 
 function savePreferences() {
   localStorage.setItem('koa-settings', JSON.stringify(preferences));
@@ -53,7 +57,23 @@ function formatSize(size, directory) {
 }
 function formatDate(iso) {
   if (!iso) return '—';
-  return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  const date = new Date(iso);
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const dateText = {
+    us: `${month}/${day}/${year}`,
+    eu: `${day}/${month}/${year}`,
+    'iso-dash': `${year}-${month}-${day}`,
+    'iso-slash': `${year}/${month}/${day}`
+  }[preferences.dateFormat] || `${month}/${day}/${year}`;
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  let timeText;
+  if (preferences.timeFormat === '24h') timeText = `${hours}:${minutes}`;
+  else if (preferences.timeFormat === '24h-padded') timeText = `${String(hours).padStart(2, '0')}:${minutes}`;
+  else timeText = `${hours % 12 || 12}:${minutes} ${hours >= 12 ? 'PM' : 'AM'}`;
+  return `${dateText} ${timeText}`;
 }
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
@@ -177,19 +197,38 @@ function updateSummary() {
   const bytes = panel.entries.filter((entry) => panel.selected.has(entry.path)).reduce((sum, entry) => sum + (entry.size || 0), 0);
   summary.textContent = count ? `${count} selected · ${formatSize(bytes, false)}` : 'Nothing selected';
 }
-function bookmarkLabel(directory) {
+function directorySetLabel(set) {
+  if (set.name?.trim()) return set.name.trim();
+  if (set.type === 'pair') return `${bookmarkLabel(set.leftPath)} ↔ ${bookmarkLabel(set.rightPath)}`;
+  return bookmarkLabel(set.path);
+}
+function bookmarkLabel(directory = '') {
   return directory.split(/[\\/]/).filter(Boolean).at(-1) || directory;
+}
+function renderDirectorySets() {
+  if (directorySetDraft) {
+    const draft = directorySetDraft;
+    const isPair = draft.type === 'pair';
+    settingsContent.innerHTML = `<h2>${draft.index === null ? 'New directory set' : 'Edit directory set'}</h2><p class="settings-description">Save one location or a left/right directory pair.</p><label class="directory-set-field"><span>Name <small>(optional)</small></span><input data-set-field="name" value="${escapeHtml(draft.name || '')}" placeholder="For example, Project files"></label><label class="directory-set-field"><span>Set type</span><select data-set-field="type"><option value="single" ${!isPair ? 'selected' : ''}>Single directory</option><option value="pair" ${isPair ? 'selected' : ''}>Directory pair</option></select></label>${isPair ? `<div class="directory-set-field"><span>Left panel directory</span><div class="directory-path-input"><input data-set-field="leftPath" value="${escapeHtml(draft.leftPath || '')}" placeholder="Choose a folder"><button data-browse-field="leftPath">Browse…</button><button data-use-panel="left" title="Use current left panel folder">Use left</button></div></div><div class="directory-set-field"><span>Right panel directory</span><div class="directory-path-input"><input data-set-field="rightPath" value="${escapeHtml(draft.rightPath || '')}" placeholder="Choose a folder"><button data-browse-field="rightPath">Browse…</button><button data-use-panel="right" title="Use current right panel folder">Use right</button></div></div><p class="settings-hint">Opening a pair places its left and right directories in their matching panels.</p>` : `<div class="directory-set-field"><span>Directory</span><div class="directory-path-input"><input data-set-field="path" value="${escapeHtml(draft.path || '')}" placeholder="Choose a folder"><button data-browse-field="path">Browse…</button><button data-use-panel="left" title="Use current left panel folder">Use left</button><button data-use-panel="right" title="Use current right panel folder">Use right</button></div></div><label class="directory-set-field"><span>Open in panel</span><select data-set-field="openIn"><option value="active" ${draft.openIn === 'active' ? 'selected' : ''}>Active panel</option><option value="left" ${draft.openIn === 'left' ? 'selected' : ''}>Left panel</option><option value="right" ${draft.openIn === 'right' ? 'selected' : ''}>Right panel</option></select></label>`}<div class="directory-set-form-actions"><button class="settings-secondary" data-cancel-set>Back</button><button class="settings-primary" data-save-set>Save directory set</button></div>`;
+    return;
+  }
+  const items = preferences.directorySets.map((set, index) => {
+    const description = set.type === 'pair'
+      ? `Left: ${set.leftPath} · Right: ${set.rightPath}`
+      : `${set.path} · Opens in ${set.openIn === 'active' ? 'active panel' : `${set.openIn} panel`}`;
+    return `<div class="directory-set-row"><div class="directory-set-summary"><strong>${escapeHtml(directorySetLabel(set))}</strong><small>${escapeHtml(description)}</small></div><button class="directory-set-open" data-open-set="${index}">Open</button><button class="bookmark-remove" data-edit-set="${index}" aria-label="Edit directory set" title="Edit">✎</button><button class="bookmark-remove" data-remove-set="${index}" aria-label="Remove directory set" title="Remove">×</button></div>`;
+  }).join('');
+  settingsContent.innerHTML = `<h2>Directory Sets</h2><p class="settings-description">Save a single location or a left/right pair, then open it in your preferred panel arrangement.</p><button class="settings-primary" data-new-set>New directory set</button><div class="directory-set-list">${items || '<p class="settings-empty">No directory sets yet.</p>'}</div>`;
 }
 function renderSettingsCategory() {
   document.querySelectorAll('.settings-category').forEach((button) => button.classList.toggle('active', button.dataset.category === settingsCategory));
   if (settingsCategory === 'files') {
-    settingsContent.innerHTML = `<h2>Files &amp; Folders</h2><p class="settings-description">Choose which items appear and how they are arranged.</p><label class="setting-option"><span><strong>Show hidden files</strong><small>Include dot-prefixed files and folders in the panels.</small></span><input type="checkbox" data-preference="showHidden" ${preferences.showHidden ? 'checked' : ''}></label><label class="setting-option"><span><strong>Group folders before files</strong><small>Keep folders at the top of each panel.</small></span><input type="checkbox" data-preference="groupFolders" ${preferences.groupFolders ? 'checked' : ''}></label>`;
+    settingsContent.innerHTML = `<h2>Files &amp; Folders</h2><p class="settings-description">Choose which items appear and how they are arranged.</p><label class="setting-option"><span><strong>Show hidden files</strong><small>Include dot-prefixed files and folders in the panels.</small></span><input type="checkbox" data-preference="showHidden" ${preferences.showHidden ? 'checked' : ''}></label><label class="setting-option"><span><strong>Group folders before files</strong><small>Keep folders at the top of each panel.</small></span><input type="checkbox" data-preference="groupFolders" ${preferences.groupFolders ? 'checked' : ''}></label><label class="setting-option"><span><strong>Confirm before deleting</strong><small>When confirmation is disabled, items are moved to the Recycle Bin without a prompt.</small></span><input type="checkbox" data-preference="confirmDelete" ${preferences.confirmDelete ? 'checked' : ''}></label>`;
+  } else if (settingsCategory === 'date-time') {
+    settingsContent.innerHTML = `<h2>Date &amp; Time</h2><p class="settings-description">Choose how modification dates and times appear in the panels.</p><label class="setting-field"><span>Date format</span><select data-preference="dateFormat"><option value="us" ${preferences.dateFormat === 'us' ? 'selected' : ''}>MM/DD/YYYY (American)</option><option value="eu" ${preferences.dateFormat === 'eu' ? 'selected' : ''}>DD/MM/YYYY (European)</option><option value="iso-dash" ${preferences.dateFormat === 'iso-dash' ? 'selected' : ''}>YYYY-MM-DD</option><option value="iso-slash" ${preferences.dateFormat === 'iso-slash' ? 'selected' : ''}>YYYY/MM/DD</option></select></label><label class="setting-field date-time-field"><span>Time format</span><select data-preference="timeFormat"><option value="12h" ${preferences.timeFormat === '12h' ? 'selected' : ''}>12-hour with AM/PM</option><option value="24h" ${preferences.timeFormat === '24h' ? 'selected' : ''}>24-hour, no leading zero</option><option value="24h-padded" ${preferences.timeFormat === '24h-padded' ? 'selected' : ''}>24-hour, leading zero</option></select></label>`;
   } else if (settingsCategory === 'theme') {
     settingsContent.innerHTML = `<h2>Theme</h2><p class="settings-description">Choose the appearance used by the file manager.</p><label class="setting-field"><span>Color theme</span><select data-preference="theme"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>System</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>`;
-  } else {
-    const bookmarks = preferences.bookmarks.map((directory, index) => `<div class="bookmark-row"><button class="bookmark-open" data-bookmark="${index}" title="${escapeHtml(directory)}"><strong>${escapeHtml(bookmarkLabel(directory))}</strong><small>${escapeHtml(directory)}</small></button><button class="bookmark-remove" data-remove-bookmark="${index}" aria-label="Remove bookmark" title="Remove bookmark">×</button></div>`).join('');
-    settingsContent.innerHTML = `<h2>Bookmarks</h2><p class="settings-description">Save frequently used folders for quick access.</p><button class="settings-primary" data-add-bookmark>Add current folder</button><div class="bookmark-list">${bookmarks || '<p class="settings-empty">No bookmarks yet.</p>'}</div>`;
-  }
+  } else if (settingsCategory === 'directory-sets') renderDirectorySets();
 }
 function openSettings() {
   settingsCategory = 'files';
@@ -384,7 +423,7 @@ async function pasteSelection() {
 async function deleteSelection(side) {
   const items = getSelected(side);
   if (!items.length) return;
-  const outcome = await window.fileManager.delete(items.map((item) => item.path));
+  const outcome = await window.fileManager.delete({ entries: items.map((item) => item.path), confirm: preferences.confirmDelete });
   if (outcome.cancelled) return;
   const failed = outcome.results.find((item) => !item.ok);
   const succeeded = outcome.results.filter((item) => item.ok).length;
@@ -458,6 +497,18 @@ document.querySelectorAll('.settings-category').forEach((button) => button.addEv
   renderSettingsCategory();
 }));
 settingsContent.addEventListener('change', (event) => {
+  const setField = event.target.closest('[data-set-field]');
+  if (setField && directorySetDraft) {
+    directorySetDraft[setField.dataset.setField] = setField.value;
+    if (setField.dataset.setField === 'type') {
+      if (setField.value === 'pair') {
+        directorySetDraft.leftPath ||= panels.left.path || '';
+        directorySetDraft.rightPath ||= panels.right.path || '';
+      } else directorySetDraft.path ||= panels[activeSide].path || '';
+      renderDirectorySets();
+    }
+    return;
+  }
   const control = event.target.closest('[data-preference]');
   if (!control) return;
   preferences[control.dataset.preference] = control.type === 'checkbox' ? control.checked : control.value;
@@ -466,28 +517,81 @@ settingsContent.addEventListener('change', (event) => {
     renderPanel('left');
     renderPanel('right');
   }
+  if (control.dataset.preference === 'dateFormat' || control.dataset.preference === 'timeFormat') {
+    renderPanel('left');
+    renderPanel('right');
+  }
 });
-settingsContent.addEventListener('click', (event) => {
-  if (event.target.closest('[data-add-bookmark]')) {
-    const currentPath = panels[activeSide].path;
-    if (!currentPath) return;
-    if (preferences.bookmarks.includes(currentPath)) { toast('That folder is already bookmarked'); return; }
-    preferences.bookmarks.push(currentPath);
-    savePreferences();
-    renderSettingsCategory();
+settingsContent.addEventListener('input', (event) => {
+  const field = event.target.closest('[data-set-field]');
+  if (field && directorySetDraft && field.dataset.setField !== 'type') {
+    directorySetDraft[field.dataset.setField] = field.value;
+  }
+});
+settingsContent.addEventListener('click', async (event) => {
+  if (event.target.closest('[data-new-set]')) {
+    directorySetDraft = { index: null, type: 'single', path: panels[activeSide].path || '', openIn: 'active', name: '' };
+    renderDirectorySets();
     return;
   }
-  const remove = event.target.closest('[data-remove-bookmark]');
+  const usePanel = event.target.closest('[data-use-panel]');
+  if (usePanel && directorySetDraft) {
+    const side = usePanel.dataset.usePanel;
+    const field = directorySetDraft.type === 'pair' ? `${side}Path` : 'path';
+    directorySetDraft[field] = panels[side].path || '';
+    renderDirectorySets();
+    return;
+  }
+  const browse = event.target.closest('[data-browse-field]');
+  if (browse && directorySetDraft) {
+    try {
+      const directory = await window.fileManager.chooseDirectory();
+      if (directory) {
+        directorySetDraft[browse.dataset.browseField] = directory;
+        renderDirectorySets();
+      }
+    } catch (error) { toast(`Could not open folder picker: ${error.message}`); }
+    return;
+  }
+  if (event.target.closest('[data-cancel-set]')) {
+    directorySetDraft = null;
+    renderDirectorySets();
+    return;
+  }
+  if (event.target.closest('[data-save-set]')) {
+    const draft = directorySetDraft;
+    const requiredPaths = draft.type === 'pair' ? [draft.leftPath, draft.rightPath] : [draft.path];
+    if (requiredPaths.some((directory) => !directory?.trim())) { toast('Enter a directory for each panel'); return; }
+    const record = draft.type === 'pair'
+      ? { type: 'pair', leftPath: draft.leftPath.trim(), rightPath: draft.rightPath.trim(), name: (draft.name || '').trim() }
+      : { type: 'single', path: draft.path.trim(), openIn: draft.openIn || 'active', name: (draft.name || '').trim() };
+    if (draft.index === null) preferences.directorySets.push(record);
+    else preferences.directorySets[draft.index] = record;
+    savePreferences();
+    directorySetDraft = null;
+    renderDirectorySets();
+    return;
+  }
+  const remove = event.target.closest('[data-remove-set]');
   if (remove) {
-    preferences.bookmarks.splice(Number(remove.dataset.removeBookmark), 1);
+    preferences.directorySets.splice(Number(remove.dataset.removeSet), 1);
     savePreferences();
-    renderSettingsCategory();
+    renderDirectorySets();
     return;
   }
-  const open = event.target.closest('[data-bookmark]');
+  const edit = event.target.closest('[data-edit-set]');
+  if (edit) {
+    directorySetDraft = { ...preferences.directorySets[Number(edit.dataset.editSet)], index: Number(edit.dataset.editSet) };
+    renderDirectorySets();
+    return;
+  }
+  const open = event.target.closest('[data-open-set]');
   if (open) {
-    const directory = preferences.bookmarks[Number(open.dataset.bookmark)];
-    if (directory) { closeSettings(); navigate(activeSide, directory); }
+    const set = preferences.directorySets[Number(open.dataset.openSet)];
+    if (!set) return;
+    closeSettings();
+    if (set.type === 'pair') Promise.all([navigate('left', set.leftPath), navigate('right', set.rightPath)]);
+    else navigate(set.openIn === 'active' ? activeSide : set.openIn, set.path);
   }
 });
 

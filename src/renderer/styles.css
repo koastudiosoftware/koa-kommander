@@ -71,3 +71,7 @@
 .column-grip{position:absolute;z-index:2;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;touch-action:none}
 .column-grip::after{content:"";position:absolute;top:7px;bottom:7px;left:4px;width:1px;background:#dfe4e6;transition:background-color .12s, width .12s,left .12s}
 .column-grip:hover::after,.column-grip.is-dragging::after{left:3px;width:3px;background:#7da6cc}
+.panel:not(.is-active) .file-list tbody tr.selected{background:#f1f3f4}
+.panel:not(.is-active) .file-list tbody tr.selected .file-name{color:#69727b}
+.panel:not(.is-active) .icon-tile.selected{background:#f1f3f4;border-color:#e6e9eb}
+.panel:not(.is-active) .icon-tile.selected .tile-name{color:#737b83}

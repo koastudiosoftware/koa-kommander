@@ -50,3 +50,12 @@
 
 .panel.is-active .pathbar{background:#edf4fc;border-color:#d8e5f3}
 
+
+/* Resizable dual-panel layout */
+.workspace{display:grid;grid-template-columns:minmax(0,var(--left-panel,1fr)) 12px minmax(0,var(--right-panel,1fr));gap:0}
+.splitter{width:12px;flex:initial;position:relative;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;z-index:2;outline:none}
+.splitter::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;transform:translateX(-50%);background:#dfe4e6;transition:background-color .12s}
+.splitter:hover::before,.splitter.is-dragging::before{background:#91aac2}
+.splitter>.splitter-handle{position:relative;z-index:1;cursor:col-resize}
+.splitter:hover>.splitter-handle,.splitter.is-dragging>.splitter-handle{border-color:#bdcfe0;background:#edf4fb}
+.splitter:focus-visible>.splitter-handle{outline:2px solid #7da6cc;outline-offset:2px}

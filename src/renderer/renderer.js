@@ -384,3 +384,44 @@ document.querySelectorAll('.menu-group').forEach((group) => {
     });
   });
 });
+
+const workspaceElement = document.querySelector('.workspace');
+const splitterElement = document.querySelector('.splitter');
+let panelRatio = 0.5;
+function setPanelRatio(ratio) {
+  const availableWidth = Math.max(1, workspaceElement.clientWidth - splitterElement.offsetWidth);
+  const minimumRatio = Math.min(0.5, 240 / availableWidth);
+  panelRatio = Math.max(minimumRatio, Math.min(1 - minimumRatio, ratio));
+  workspaceElement.style.setProperty('--left-panel', `${panelRatio}fr`);
+  workspaceElement.style.setProperty('--right-panel', `${1 - panelRatio}fr`);
+  splitterElement.setAttribute('aria-valuenow', String(Math.round(panelRatio * 100)));
+}
+let resizingPointerId = null;
+splitterElement.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  resizingPointerId = event.pointerId;
+  splitterElement.classList.add('is-dragging');
+  splitterElement.setPointerCapture(event.pointerId);
+});
+splitterElement.addEventListener('pointermove', (event) => {
+  if (resizingPointerId !== event.pointerId) return;
+  const bounds = workspaceElement.getBoundingClientRect();
+  const availableWidth = Math.max(1, bounds.width - splitterElement.offsetWidth);
+  const leftWidth = event.clientX - bounds.left - splitterElement.offsetWidth / 2;
+  setPanelRatio(leftWidth / availableWidth);
+});
+function stopPanelResize(event) {
+  if (resizingPointerId !== event.pointerId) return;
+  resizingPointerId = null;
+  splitterElement.classList.remove('is-dragging');
+  if (splitterElement.hasPointerCapture(event.pointerId)) splitterElement.releasePointerCapture(event.pointerId);
+}
+splitterElement.addEventListener('pointerup', stopPanelResize);
+splitterElement.addEventListener('pointercancel', stopPanelResize);
+splitterElement.addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault();
+    setPanelRatio(panelRatio + (event.key === 'ArrowRight' ? 0.02 : -0.02));
+  }
+});

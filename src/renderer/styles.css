@@ -38,3 +38,12 @@
 /* Placeholder grip for a future adjustable panel divider. */
 .splitter>.splitter-handle{display:grid;width:10px;height:42px;flex:0 0 auto;grid-template-columns:repeat(2,2px);grid-template-rows:repeat(3,2px);gap:3px;align-content:center;justify-content:center;border:1px solid #dce1df;border-radius:6px;background:#f7f8f7;box-shadow:0 1px 2px #1d2a2414}
 .splitter-handle span{width:2px;height:2px;border-radius:50%;background:#98a29c}
+
+.toolbar-button.icon-only{width:30px;min-width:30px;padding:0}
+
+
+.dummy-tool{cursor:pointer}
+
+
+.path-home{padding:0;border:0;background:transparent;cursor:pointer}
+

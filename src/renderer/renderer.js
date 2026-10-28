@@ -84,13 +84,10 @@ function panelChrome(side) {
   const panel = panels[side];
   const parts = panel.path ? pathParts(panel.path) : [];
   const crumbs = parts.map((part, index) => `<span class="crumb" data-crumb="${index}">${escapeHtml(part.label)}</span>${index < parts.length - 1 ? '<span class="crumb-sep">›</span>' : ''}`).join('');
-  const active = activeSide === side;
   return `<div class="panel-top">
-    <div class="panel-heading"><span class="panel-label">${side === 'left' ? 'Left' : 'Right'}</span><button class="panel-drive" data-action="drives" title="Choose a drive">${escapeHtml((panel.path || '').slice(0, 2) || '—')}</button><div class="panel-title">${escapeHtml(parts.at(-1)?.label || 'Loading…')}</div>
-    <div class="panel-actions"><button class="icon-button" data-action="up" title="Go up one folder">↑</button><button class="icon-button" data-action="refresh" title="Refresh">↻</button><button class="icon-button" data-action="new-folder" title="New folder">＋</button></div></div>
-    <div class="pathbar"><span class="path-home">⌂</span>${crumbs}</div>
+    <div class="pathbar"><button class="path-home" data-action="drives" title="Choose a drive">⌂</button>${crumbs}</div>
   </div>
-  <div class="toolbar"><button class="toolbar-button" data-action="copy" title="Copy (Ctrl+C)">Copy</button><button class="toolbar-button" data-action="move" title="Move selected items">Move</button><button class="toolbar-button" data-action="delete" title="Delete (Delete)">Delete</button><span class="toolbar-spacer"></span>
+  <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-spacer"></span>
     <div class="view-group"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Icons">${gridIcon('icons')}</button></div>
     ${panel.view === 'icons' ? `<label class="size-control" title="Icon size">${panel.iconSize}<input type="range" min="32" max="112" step="8" value="${panel.iconSize}" data-action="icon-size"></label>` : ''}
   </div>`;
@@ -101,6 +98,18 @@ function gridIcon(type) {
     : '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4" height="4" rx=".7"/><rect x="9.5" y="2.5" width="4" height="4" rx=".7"/><rect x="2.5" y="9.5" width="4" height="4" rx=".7"/><rect x="9.5" y="9.5" width="4" height="4" rx=".7"/></svg>';
 }
 
+function actionIcon(name) {
+  const icons = {
+    'new-folder': '<path d="M3 6.5h7l2 2h9v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 11v6M9 14h6"/>',    up: '<path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/>',
+    refresh: '<path d="M4.5 9A8 8 0 0 1 18 5.5L20 9"/><path d="M20 9l-4.5-.3M20 9l-.4-4.5"/><path d="M19.5 15A8 8 0 0 1 6 18.5L4 15"/><path d="M4 15l4.5.3M4 15l.4 4.5"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+    cut: '<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><path d="m8 7 12 12M8 17 20 5"/>',
+    paste: '<path d="M9 4.5h6a2 2 0 0 1 2 2V8H7V6.5a2 2 0 0 1 2-2Z"/><path d="M7 6H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2M7 8h10M15 15h7M18.5 11.5v7"/>',
+    rename: '<path d="M12 20h9"/><path d="m16.5 3.5 4 4L9 19l-5 1 1-5Z"/>',
+    delete: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
+}
 function entryAttributes(entry, side, index, tile = false) {
   const cls = kind(entry);
   const selected = panels[side].selected.has(entry.path);
@@ -121,7 +130,7 @@ function renderPanel(side) {
   const selectedCount = panel.selected.size;
   const itemCount = panel.entries.length;
   panel.element.classList.toggle('is-active', activeSide === side);
-  panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom"><strong>${selectedCount || itemCount}</strong>&nbsp;${selectedCount ? 'selected' : 'items'}<span class="bottom-spacer"></span>${panel.path ? escapeHtml(panel.path) : ''}</div>`;
+  panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom"><strong>${selectedCount || itemCount}</strong>&nbsp;${selectedCount ? 'selected' : 'items'}<span class="bottom-spacer"></span></div>`;
   bindPanel(side);
   updateSummary();
 }
@@ -145,10 +154,22 @@ function refreshSelection() {
       item.classList.toggle('selected', panel.selected.has(entry.path));
     });
     const bottom = panelElement.querySelector('.panel-bottom');
-    if (bottom) bottom.innerHTML = `<strong>${panel.selected.size || panel.entries.length}</strong>&nbsp;${panel.selected.size ? 'selected' : 'items'}<span class="bottom-spacer"></span>${escapeHtml(panel.path || '')}`;
+    if (bottom) bottom.innerHTML = `<strong>${panel.selected.size || panel.entries.length}</strong>&nbsp;${panel.selected.size ? 'selected' : 'items'}<span class="bottom-spacer"></span>`;
   });
   updateSummary();
 }
+async function createFolder(side) {
+  const parent = panels[side].path;
+  const name = window.prompt('Name the new folder:');
+  if (!name) return;
+  try {
+    await window.fileManager.createFolder({ parent, name });
+    await navigate(side, parent);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 function bindPanel(side) {
   const panel = panels[side];
   const element = panel.element;
@@ -158,31 +179,6 @@ function bindPanel(side) {
   }));
   element.querySelectorAll('[data-action="up"]').forEach((button) => button.addEventListener('click', () => navigate(side, pathParts(panel.path).length > 1 ? pathParts(panel.path).at(-2).path : panel.path)));
   element.querySelectorAll('[data-action="refresh"]').forEach((button) => button.addEventListener('click', () => navigate(side, panel.path)));
-  element.querySelectorAll('[data-action="new-folder"]').forEach((button) => button.addEventListener('click', async () => {
-    const name = window.prompt('Name the new folder:');
-    if (!name) return;
-    try { await window.fileManager.createFolder({ parent: panel.path, name }); navigate(side, panel.path); }
-    catch (error) { toast(error.message); }
-  }));
-  element.querySelectorAll('[data-action="drives"]').forEach((button) => button.addEventListener('click', async () => {
-    const roots = await window.fileManager.roots();
-    if (!roots.length) return;
-    const currentRoot = roots.findIndex((root) => panel.path.toLowerCase().startsWith(root.path.toLowerCase()));
-    const choices = roots.map((root, index) => `${index + 1}. ${root.name}`).join('\n');
-    const answer = window.prompt(`Open drive or location by number:\n${choices}`, String(Math.max(currentRoot + 1, 1)));
-    const selected = roots[Number(answer) - 1];
-    if (selected) navigate(side, selected.path);
-  }));
-  element.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => { panel.view = button.dataset.view; renderPanel(side); }));
-  element.querySelectorAll('[data-action="icon-size"]').forEach((input) => input.addEventListener('change', () => { panel.iconSize = Number(input.value); renderPanel(side); }));
-  element.addEventListener('mousedown', (event) => {
-    const inFileArea = event.target.closest('.file-area');
-    if (inFileArea && !event.target.closest('[data-entry]')) {
-      panel.selected.clear();
-      activeSide = side;
-      refreshSelection();
-    }
-  });
   element.querySelectorAll('[data-entry]').forEach((row) => {
     const entry = panel.entries[Number(row.dataset.entry)];
     row.addEventListener('click', (event) => {
@@ -281,6 +277,21 @@ async function deleteSelection(side) {
   await navigate(side, panels[side].path);
   toast(failed ? failed.error : `Moved ${items.length} item${items.length === 1 ? '' : 's'} to the Recycle Bin`);
 }
+async function renameSelection(side) {
+  const selected = getSelected(side);
+  if (!selected.length) { toast('Select one item to rename'); return; }
+  if (selected.length > 1) { toast('Rename one item at a time'); return; }
+  const item = selected[0];
+  const name = window.prompt('Rename item:', item.name);
+  if (name === null || name === item.name) return;
+  try {
+    await window.fileManager.rename({ source: item.path, name });
+    await navigate(side, panels[side].path);
+    toast('Item renamed');
+  } catch (error) {
+    toast(error.message);
+  }
+}
 async function handleDrop(event, destinationSide, destination) {
   let payload;
   try { payload = JSON.parse(event.dataTransfer.getData('application/x-koa-files')); } catch { return; }
@@ -293,14 +304,17 @@ async function handleDrop(event, destinationSide, destination) {
 
 document.addEventListener('click', (event) => {
   const panelElement = event.target.closest('.panel');
-  if (!panelElement) return;
-  activeSide = panelElement.dataset.panel;
+  const action = event.target.closest('[data-action]')?.dataset.action;
+  if (panelElement) activeSide = panelElement.dataset.panel;
+  else if (!action) return;
   document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.panel === activeSide));
   updateSummary();
-  const action = event.target.closest('[data-action]')?.dataset.action;
   if (action === 'copy') copySelection(activeSide, false);
-  if (action === 'move') copySelection(activeSide, true);
+  if (action === 'cut') copySelection(activeSide, true);
+  if (action === 'paste') pasteSelection();
+  if (action === 'rename') renameSelection(activeSide);
   if (action === 'delete') deleteSelection(activeSide);
+  if (action === 'new-folder') createFolder(activeSide);
 });
 document.addEventListener('keydown', async (event) => {
   const mod = event.ctrlKey || event.metaKey;
@@ -345,3 +359,14 @@ document.addEventListener('click', (event) => {
     trigger.nextElementSibling.hidden = true;
   });
 });
+
+
+
+
+
+
+
+
+
+
+

@@ -138,6 +138,24 @@ ipcMain.handle('fs:create-folder', async (_event, { parent, name }) => {
   return destination;
 });
 
+ipcMain.handle('fs:rename', async (_event, { source: rawSource, name: rawName }) => {
+  const source = path.resolve(rawSource);
+  const name = String(rawName).trim();
+  const safeName = path.basename(name);
+  if (!name || name === '.' || name === '..' || safeName !== name) {
+    throw new Error('Enter a valid file name.');
+  }
+  const destination = path.join(path.dirname(source), safeName);
+  if (destination === source) return destination;
+  try {
+    await fs.lstat(destination);
+    throw new Error(`“${safeName}” already exists in this folder.`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  await fs.rename(source, destination);
+  return destination;
+});
 app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => {
@@ -148,3 +166,4 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+

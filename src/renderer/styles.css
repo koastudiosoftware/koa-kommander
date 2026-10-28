@@ -59,3 +59,6 @@
 .splitter>.splitter-handle{position:relative;z-index:1;cursor:col-resize}
 .splitter:hover>.splitter-handle,.splitter.is-dragging>.splitter-handle{border-color:#bdcfe0;background:#edf4fb}
 .splitter:focus-visible>.splitter-handle{outline:2px solid #7da6cc;outline-offset:2px}
+
+.splitter:hover{background:#eff5fa}
+.splitter.is-dragging{background:#e7f0f8}

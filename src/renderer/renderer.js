@@ -399,6 +399,7 @@ function setPanelRatio(ratio) {
 let resizingPointerId = null;
 splitterElement.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
+  splitterElement.focus({ preventScroll: true });
   event.preventDefault();
   resizingPointerId = event.pointerId;
   splitterElement.classList.add('is-dragging');
@@ -422,6 +423,8 @@ splitterElement.addEventListener('pointercancel', stopPanelResize);
 splitterElement.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
-    setPanelRatio(panelRatio + (event.key === 'ArrowRight' ? 0.02 : -0.02));
+    setPanelRatio(panelRatio + (event.key === 'ArrowRight' ? 0.01 : -0.01));
   }
 });
+
+

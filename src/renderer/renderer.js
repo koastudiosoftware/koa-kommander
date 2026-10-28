@@ -324,3 +324,24 @@ async function initialize() {
   await navigate('right', rightExists?.path || start);
 }
 initialize();
+
+document.querySelectorAll('.menu-trigger').forEach((trigger) => {
+  trigger.addEventListener('click', () => {
+    const wasOpen = trigger.getAttribute('aria-expanded') === 'true';
+    document.querySelectorAll('.menu-trigger').forEach((item) => {
+      item.setAttribute('aria-expanded', 'false');
+      item.nextElementSibling.hidden = true;
+    });
+    if (!wasOpen) {
+      trigger.setAttribute('aria-expanded', 'true');
+      trigger.nextElementSibling.hidden = false;
+    }
+  });
+});
+document.addEventListener('click', (event) => {
+  if (event.target.closest('.menu-group')) return;
+  document.querySelectorAll('.menu-trigger').forEach((trigger) => {
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.nextElementSibling.hidden = true;
+  });
+});

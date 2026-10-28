@@ -370,3 +370,17 @@ document.addEventListener('click', (event) => {
 
 
 
+
+document.querySelectorAll('.menu-group').forEach((group) => {
+  group.addEventListener('mouseenter', () => {
+    const triggers = [...document.querySelectorAll('.menu-trigger')];
+    const menuIsOpen = triggers.some((trigger) => trigger.getAttribute('aria-expanded') === 'true');
+    if (!menuIsOpen) return;
+    const current = group.querySelector('.menu-trigger');
+    triggers.forEach((trigger) => {
+      const shouldOpen = trigger === current;
+      trigger.setAttribute('aria-expanded', String(shouldOpen));
+      trigger.nextElementSibling.hidden = !shouldOpen;
+    });
+  });
+});

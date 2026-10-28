@@ -62,3 +62,12 @@
 
 .splitter:hover{background:#eff5fa}
 .splitter.is-dragging{background:#e7f0f8}
+
+/* Draggable boundaries between details-view columns. */
+.file-list th{position:relative}
+.file-list th:nth-child(1){width:var(--name-width,58%)}
+.file-list th:nth-child(2){width:var(--size-width,17%)}
+.file-list th:nth-child(3){width:var(--date-width,25%)}
+.column-grip{position:absolute;z-index:2;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;touch-action:none}
+.column-grip::after{content:"";position:absolute;top:7px;bottom:7px;left:4px;width:1px;background:#dfe4e6;transition:background-color .12s, width .12s,left .12s}
+.column-grip:hover::after,.column-grip.is-dragging::after{left:3px;width:3px;background:#7da6cc}

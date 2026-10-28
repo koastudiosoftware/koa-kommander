@@ -1,6 +1,6 @@
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48 },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48 }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25] },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25] }
 };
 let activeSide = 'left';
 let clipboard = null;
@@ -119,7 +119,8 @@ function renderEntries(side) {
   const panel = panels[side];
   if (panel.view === 'details') {
     const rows = panel.entries.map((entry, index) => `<tr ${entryAttributes(entry, side, index)}><td><div class="name-cell"><span class="file-icon ${kind(entry)}">${icon(kind(entry))}</span><span class="file-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span></div></td><td>${formatSize(entry.size, entry.isDirectory)}</td><td class="date-cell">${formatDate(entry.modified)}</td></tr>`).join('');
-    return `<div class="file-area"><table class="file-list"><thead><tr><th>Name</th><th>Size</th><th>Date modified</th></tr></thead><tbody>${rows}</tbody></table>${panel.entries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
+    const colgroup = panel.columns.map((width) => `<col style="width:${width}%">`).join('');
+    return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr><th>Name<span class="column-grip" data-column-boundary="0" title="Resize Name column" aria-label="Resize Name column"></span></th><th>Size<span class="column-grip" data-column-boundary="1" title="Resize Size column" aria-label="Resize Size column"></span></th><th>Date modified</th></tr></thead><tbody>${rows}</tbody></table>${panel.entries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
   }
   const tileSize = Math.round(panel.iconSize * 1.9);
   const tiles = panel.entries.map((entry, index) => `<div ${entryAttributes(entry, side, index, true)}><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
@@ -177,6 +178,47 @@ function bindPanel(side) {
     const part = pathParts(panel.path)[Number(crumb.dataset.crumb)];
     if (part) navigate(side, part.path);
   }));
+  element.querySelectorAll('[data-column-boundary]').forEach((grip) => {
+    let startX = 0;
+    let startWidths = null;
+    const boundary = Number(grip.dataset.columnBoundary);
+    grip.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      activeSide = side;
+      refreshSelection();
+      startX = event.clientX;
+      startWidths = [...panel.columns];
+      grip.classList.add('is-dragging');
+      grip.setPointerCapture(event.pointerId);
+    });
+    grip.addEventListener('pointermove', (event) => {
+      if (!startWidths || !grip.hasPointerCapture(event.pointerId)) return;
+      const tableWidth = grip.closest('table').getBoundingClientRect().width;
+      const delta = (event.clientX - startX) / tableWidth * 100;
+      const leftColumn = boundary;
+      const rightColumn = boundary + 1;
+      const leftMin = leftColumn === 0 ? 25 : 10;
+      const rightMin = rightColumn === 2 ? 15 : 10;
+      const leftWidth = Math.max(leftMin, Math.min(startWidths[leftColumn] + startWidths[rightColumn] - rightMin, startWidths[leftColumn] + delta));
+      panel.columns[leftColumn] = leftWidth;
+      panel.columns[rightColumn] = startWidths[leftColumn] + startWidths[rightColumn] - leftWidth;
+      const table = grip.closest('table');
+      table.style.setProperty('--name-width', `${panel.columns[0]}%`);
+      table.style.setProperty('--size-width', `${panel.columns[1]}%`);
+      table.style.setProperty('--date-width', `${panel.columns[2]}%`);
+      table.querySelectorAll('col').forEach((col, index) => { col.style.width = `${panel.columns[index]}%`; });
+    });
+    const finishResize = (event) => {
+      if (!startWidths) return;
+      startWidths = null;
+      grip.classList.remove('is-dragging');
+      if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId);
+    };
+    grip.addEventListener('pointerup', finishResize);
+    grip.addEventListener('pointercancel', finishResize);
+  });
   element.querySelectorAll('[data-action="up"]').forEach((button) => button.addEventListener('click', () => navigate(side, pathParts(panel.path).length > 1 ? pathParts(panel.path).at(-2).path : panel.path)));
   element.querySelectorAll('[data-action="refresh"]').forEach((button) => button.addEventListener('click', () => navigate(side, panel.path)));
   element.querySelectorAll('[data-entry]').forEach((row) => {

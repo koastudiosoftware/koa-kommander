@@ -282,6 +282,12 @@ function bindHistoryLongPress() {
   });
 }
 bindHistoryLongPress();
+document.addEventListener('auxclick', (event) => {
+  if (event.button !== 3 && event.button !== 4) return;
+  event.preventDefault();
+  event.stopPropagation();
+  moveHistory(activeSide, event.button === 3 ? -1 : 1);
+});
 function directorySetLabel(set) {
   if (set.name?.trim()) return set.name.trim();
   if (set.type === 'pair') return `${bookmarkLabel(set.leftPath)} ↔ ${bookmarkLabel(set.rightPath)}`;

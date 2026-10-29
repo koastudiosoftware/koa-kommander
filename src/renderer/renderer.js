@@ -21,13 +21,14 @@ let layoutInitialized = false;
 let activeSide = 'left';
 let clipboard = null;
 let toastTimer;
-const defaultPreferences = { showHidden: false, groupFolders: true, confirmDelete: true, dateFormat: 'us', timeFormat: '12h', theme: 'system', directorySets: [], thumbnailCachePath: '' };
+const defaultPreferences = { showHidden: false, groupFolders: true, confirmDelete: true, dateFormat: 'us', timeFormat: '12h', theme: 'system', directorySets: [], directorySetSort: 'manual', thumbnailCachePath: '' };
 let preferences;
 let savedPreferences = {};
 try { savedPreferences = JSON.parse(localStorage.getItem('koa-settings') || '{}'); }
 catch { savedPreferences = {}; }
 preferences = { ...defaultPreferences, ...savedPreferences };
 if (typeof preferences.thumbnailCachePath !== 'string') preferences.thumbnailCachePath = '';
+if (!['manual', 'alphabetical'].includes(preferences.directorySetSort)) preferences.directorySetSort = 'manual';
 if (!Array.isArray(savedPreferences.directorySets)) preferences.directorySets = (savedPreferences.bookmarks || []).map((directory) => ({ type: 'single', path: directory, openIn: 'active', name: '' }));
 delete preferences.bookmarks;
 const status = document.querySelector('#status-message');
@@ -662,6 +663,13 @@ function directorySetDetails(set) {
   const target = set.openIn === 'left' ? 'Left' : set.openIn === 'right' ? 'Right' : 'Active';
   return [[target, set.path]];
 }
+function orderedDirectorySets() {
+  const items = preferences.directorySets.map((set, index) => ({ set, index }));
+  if (preferences.directorySetSort === 'alphabetical') {
+    items.sort((a, b) => directorySetLabel(a.set).localeCompare(directorySetLabel(b.set), undefined, { numeric: true, sensitivity: 'base' }));
+  }
+  return items;
+}
 async function openDirectorySet(set, activePanel = activeSide) {
   if (set.type === 'pair') return Promise.all([navigate('left', set.leftPath), navigate('right', set.rightPath)]);
   const target = set.openIn === 'left' || set.openIn === 'right' ? set.openIn : activePanel;
@@ -685,8 +693,9 @@ function showDirectorySetMenu(side, button) {
   panels.left.element.classList.toggle('is-active', side === 'left');
   panels.right.element.classList.toggle('is-active', side === 'right');
   button.setAttribute('aria-expanded', 'true');
-  directorySetMenu.innerHTML = preferences.directorySets.length
-    ? preferences.directorySets.map((set, index) => `<button role="menuitem" data-menu-directory-set="${index}"><strong>${escapeHtml(directorySetLabel(set))}</strong><span class="directory-set-locations">${directorySetDetails(set).map(([label, directory]) => `<span class="directory-set-location-label">${escapeHtml(label)}</span><span class="directory-set-location-path">${escapeHtml(directory || '')}</span>`).join('')}</span></button>`).join('')
+  const orderedSets = orderedDirectorySets();
+  directorySetMenu.innerHTML = orderedSets.length
+    ? orderedSets.map(({ set, index }) => `<button role="menuitem" data-menu-directory-set="${index}"><strong>${escapeHtml(directorySetLabel(set))}</strong><span class="directory-set-locations">${directorySetDetails(set).map(([label, directory]) => `<span class="directory-set-location-label">${escapeHtml(label)}</span><span class="directory-set-location-path">${escapeHtml(directory || '')}</span>`).join('')}</span></button>`).join('')
     : '<div class="directory-set-menu-empty">No directory sets saved.</div>';
   directorySetMenu.hidden = false;
   const bounds = button.getBoundingClientRect();
@@ -713,13 +722,13 @@ function renderDirectorySets() {
     settingsContent.innerHTML = `<h2>${draft.index === null ? 'New directory set' : 'Edit directory set'}</h2><p class="settings-description">Save one location or a left/right directory pair.</p><label class="directory-set-field"><span>Name <small>(optional)</small></span><input data-set-field="name" value="${escapeHtml(draft.name || '')}" placeholder="For example, Project files"></label><label class="directory-set-field"><span>Set type</span><select data-set-field="type"><option value="single" ${!isPair ? 'selected' : ''}>Single directory</option><option value="pair" ${isPair ? 'selected' : ''}>Directory pair</option></select></label>${isPair ? `<div class="directory-set-field"><span>Left panel directory</span><div class="directory-path-input"><input data-set-field="leftPath" value="${escapeHtml(draft.leftPath || '')}" placeholder="Choose a folder"><button data-browse-field="leftPath">Browse…</button><button data-use-panel="left" title="Use current left panel folder">Use left</button></div></div><div class="directory-set-field"><span>Right panel directory</span><div class="directory-path-input"><input data-set-field="rightPath" value="${escapeHtml(draft.rightPath || '')}" placeholder="Choose a folder"><button data-browse-field="rightPath">Browse…</button><button data-use-panel="right" title="Use current right panel folder">Use right</button></div></div><p class="settings-hint">Opening a pair places its left and right directories in their matching panels.</p>` : `<div class="directory-set-field"><span>Directory</span><div class="directory-path-input"><input data-set-field="path" value="${escapeHtml(draft.path || '')}" placeholder="Choose a folder"><button data-browse-field="path">Browse…</button><button data-use-panel="left" title="Use current left panel folder">Use left</button><button data-use-panel="right" title="Use current right panel folder">Use right</button></div></div><label class="directory-set-field"><span>Open in panel</span><select data-set-field="openIn"><option value="active" ${draft.openIn === 'active' ? 'selected' : ''}>Active panel</option><option value="left" ${draft.openIn === 'left' ? 'selected' : ''}>Left panel</option><option value="right" ${draft.openIn === 'right' ? 'selected' : ''}>Right panel</option></select></label>`}<div class="directory-set-form-actions"><button class="settings-secondary" data-cancel-set>Back</button><button class="settings-primary" data-save-set>Save directory set</button></div>`;
     return;
   }
-  const items = preferences.directorySets.map((set, index) => {
+  const items = orderedDirectorySets().map(({ set, index }) => {
     const description = set.type === 'pair'
       ? `Left: ${set.leftPath} · Right: ${set.rightPath}`
       : `${set.path} · Opens in ${set.openIn === 'active' ? 'active panel' : `${set.openIn} panel`}`;
-    return `<div class="directory-set-row"><div class="directory-set-summary"><strong>${escapeHtml(directorySetLabel(set))}</strong><small>${escapeHtml(description)}</small></div><button class="directory-set-open" data-open-set="${index}">Open</button><button class="bookmark-remove" data-edit-set="${index}" aria-label="Edit directory set" title="Edit">✎</button><button class="bookmark-remove" data-remove-set="${index}" aria-label="Remove directory set" title="Remove">×</button></div>`;
+    return `<div class="directory-set-row" draggable="${preferences.directorySetSort === 'manual'}" data-sortable-set="${index}"><div class="directory-set-summary"><strong>${escapeHtml(directorySetLabel(set))}</strong><small>${escapeHtml(description)}</small></div><button class="directory-set-open" data-open-set="${index}">Open</button><button class="bookmark-remove" data-edit-set="${index}" aria-label="Edit directory set" title="Edit">✎</button><button class="bookmark-remove" data-remove-set="${index}" aria-label="Remove directory set" title="Remove">×</button></div>`;
   }).join('');
-  settingsContent.innerHTML = `<h2>Directory Sets</h2><p class="settings-description">Save a single location or a left/right pair, then open it in your preferred panel arrangement.</p><button class="settings-primary" data-new-set>New directory set</button><div class="directory-set-list">${items || '<p class="settings-empty">No directory sets yet.</p>'}</div>`;
+  settingsContent.innerHTML = `<h2>Directory Sets</h2><p class="settings-description">Save a single location or a left/right pair, then open it in your preferred panel arrangement.</p><label class="setting-field directory-set-sort-field"><span>Sort directory sets</span><select data-preference="directorySetSort"><option value="manual" ${preferences.directorySetSort === 'manual' ? 'selected' : ''}>Manual (drag to reorder)</option><option value="alphabetical" ${preferences.directorySetSort === 'alphabetical' ? 'selected' : ''}>Alphabetically by title</option></select></label><button class="settings-primary" data-new-set>New directory set</button><div class="directory-set-list">${items || '<p class="settings-empty">No directory sets yet.</p>'}</div>`;
 }
 function renderSettingsCategory() {
   document.querySelectorAll('.settings-category').forEach((button) => button.classList.toggle('active', button.dataset.category === settingsCategory));
@@ -1280,6 +1289,7 @@ settingsContent.addEventListener('change', (event) => {
   if (!control) return;
   preferences[control.dataset.preference] = control.type === 'checkbox' ? control.checked : control.value;
   savePreferences();
+  if (control.dataset.preference === 'directorySetSort') renderDirectorySets();
   if (control.dataset.preference === 'showHidden' || control.dataset.preference === 'groupFolders') {
     renderPanel('left');
     renderPanel('right');
@@ -1288,6 +1298,40 @@ settingsContent.addEventListener('change', (event) => {
     renderPanel('left');
     renderPanel('right');
   }
+});
+settingsContent.addEventListener('dragstart', (event) => {
+  const row = event.target.closest('[data-sortable-set]');
+  if (!row || preferences.directorySetSort !== 'manual') { event.preventDefault(); return; }
+  event.dataTransfer.setData('text/plain', row.dataset.sortableSet);
+  event.dataTransfer.effectAllowed = 'move';
+  row.classList.add('is-dragging');
+});
+settingsContent.addEventListener('dragend', (event) => {
+  event.target.closest('[data-sortable-set]')?.classList.remove('is-dragging');
+  settingsContent.querySelectorAll('.drop-before,.drop-after').forEach((row) => row.classList.remove('drop-before', 'drop-after'));
+});
+settingsContent.addEventListener('dragover', (event) => {
+  const row = event.target.closest('[data-sortable-set]');
+  if (preferences.directorySetSort !== 'manual' || !row) return;
+  event.preventDefault();
+  settingsContent.querySelectorAll('.drop-before,.drop-after').forEach((item) => item.classList.remove('drop-before', 'drop-after'));
+  const position = event.clientY < row.getBoundingClientRect().top + row.offsetHeight / 2 ? 'drop-before' : 'drop-after';
+  row.classList.add(position);
+});
+settingsContent.addEventListener('drop', (event) => {
+  const target = event.target.closest('[data-sortable-set]');
+  const draggedIndex = event.dataTransfer.getData('text/plain');
+  if (!target || preferences.directorySetSort !== 'manual' || !/^\d+$/.test(draggedIndex)) return;
+  const sourceIndex = Number(draggedIndex);
+  event.preventDefault();
+  const targetIndex = Number(target.dataset.sortableSet);
+  if (sourceIndex === targetIndex || !preferences.directorySets[sourceIndex]) return;
+  let insertIndex = targetIndex + (target.classList.contains('drop-after') ? 1 : 0);
+  const [set] = preferences.directorySets.splice(sourceIndex, 1);
+  if (sourceIndex < insertIndex) insertIndex -= 1;
+  preferences.directorySets.splice(insertIndex, 0, set);
+  savePreferences();
+  renderDirectorySets();
 });
 settingsContent.addEventListener('input', (event) => {
   const field = event.target.closest('[data-set-field]');

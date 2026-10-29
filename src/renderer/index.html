@@ -39,6 +39,14 @@
 
   <div class="context-menu" id="context-menu" role="menu" hidden></div>
   <div class="history-menu" id="history-menu" role="menu" aria-label="Directory history" hidden></div>
+  <div class="conflict-backdrop" id="conflict-backdrop" hidden>
+    <section class="conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
+      <header class="conflict-header"><div><h2 id="conflict-title">An item with this name already exists</h2><p>Choose what to do with the incoming item.</p></div></header>
+      <div class="conflict-items" id="conflict-items"></div>
+      <div class="conflict-rename" id="conflict-rename" hidden><label for="conflict-rename-name">New name for incoming item</label><div><input id="conflict-rename-name"><button class="conflict-choice primary" data-conflict-confirm-rename>Use this name</button></div></div>
+      <footer class="conflict-actions" id="conflict-actions"></footer>
+    </section>
+  </div>
   <div class="settings-backdrop" id="settings-backdrop" hidden>
     <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="settings-header"><div><h1 id="settings-title">Settings</h1><p>Configure Koa Kommander</p></div><button class="settings-close" id="settings-close" aria-label="Close settings" title="Close">×</button></header>

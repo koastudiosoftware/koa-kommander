@@ -108,6 +108,41 @@
 .bookmark-remove{width:25px;height:25px;border:0;border-radius:4px;background:transparent;color:#89929b;font-size:18px;cursor:pointer}
 .bookmark-remove:hover{background:#f6eaea;color:#a34d4d}
 .settings-empty{padding:18px 0;color:#969fa7;font-size:11px}
+.conflict-backdrop[hidden],.conflict-rename[hidden]{display:none}
+.conflict-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:24px;background:#17212b70}
+.conflict-dialog{width:min(760px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow:auto;padding:24px;background:#fff;border:1px solid #dfe4e8;border-radius:10px;box-shadow:0 20px 70px #11192345;color:#27313a}
+.conflict-header h2{margin:0;font-size:17px;font-weight:650}
+.conflict-header p{margin:5px 0 20px;color:#7d8791;font-size:11px}
+.conflict-items{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.conflict-object-choice{min-width:0;width:100%;min-height:225px;padding:14px;border:1px solid #d9e0e5;border-radius:7px;background:#fafbfc;color:inherit;text-align:left;font:inherit;cursor:pointer}
+.conflict-object-choice:hover{background:#f3f6f7;border-color:#bfcbd3}
+.conflict-object-choice.primary{border-color:#b8d1c2;background:#edf5f0}
+.conflict-object-choice.primary:hover{background:#e3efe8}
+.conflict-object-choice:not(button){cursor:default}
+.conflict-object-choice:not(button):hover{background:#fafbfc;border-color:#d9e0e5}
+.conflict-object-heading{margin-bottom:11px;color:#71808b;font-size:11px;font-weight:700;letter-spacing:.45px;text-transform:uppercase}
+.conflict-object-name{display:flex;align-items:center;gap:7px;min-width:0}
+.conflict-object-name strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#303a44;font-size:13px;font-weight:600}
+.conflict-object-choice dl{margin:12px 0 0}
+.conflict-object-choice dl>div{display:flex;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px}
+.conflict-object-choice dt{color:#87919a}
+.conflict-object-choice dd{margin:0;color:#46515b;text-align:right}
+.conflict-object-path{margin-top:10px;padding-top:9px;border-top:1px solid #e9edf0;color:#818b95;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.conflict-object-action{margin-top:13px;padding-top:10px;border-top:1px solid #e1e7ea;color:#46515b;font-size:11px;font-weight:650}
+.conflict-object-choice.primary .conflict-object-action{color:#326b50}
+.conflict-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:18px}
+.conflict-choice{min-height:44px;padding:8px 12px;border:1px solid #dfe4e8;border-radius:6px;background:#fff;color:#46515b;font:600 11px 'Segoe UI',Arial,sans-serif;cursor:pointer}
+.conflict-choice:hover{background:#f5f7f8}
+.conflict-choice.primary{border-color:#b8d1c2;background:#edf5f0;color:#326b50}
+.conflict-choice.primary:hover{background:#e3efe8}
+.conflict-choice span{display:block;margin-top:3px;font-size:9px;font-weight:400;color:#6f8176}
+.conflict-choice.cancel{min-height:44px;border-color:transparent;background:transparent;color:#77818b}
+.conflict-rename{margin-top:14px;padding:12px;border-radius:6px;background:#f6f8f9}
+.conflict-rename label{display:block;margin-bottom:7px;color:#59646e;font-size:10px;font-weight:600}
+.conflict-rename>div{display:flex;gap:8px}
+.conflict-rename input{height:34px;min-width:0;flex:1;padding:0 9px;border:1px solid #d7dee3;border-radius:4px;color:#303a44;font:11px 'Segoe UI',Arial,sans-serif}
+.conflict-rename .conflict-choice{min-height:34px}
+.conflict-dialog :focus-visible{outline:2px solid #7da6cc;outline-offset:2px}
 .dummy-tool:disabled{opacity:.4;cursor:default}
 .dummy-tool:disabled:hover{background:transparent}
 .history-menu[hidden]{display:none}
@@ -117,10 +152,26 @@
 :root[data-theme="dark"] .history-menu,:root[data-theme="dark"] .history-menu button{background:#20262d;border-color:#39414b}
 :root[data-theme="dark"] .history-menu button:hover{background:#2a323b}
 :root[data-theme="dark"] .history-menu strong{color:#d7dee5}
+:root[data-theme="dark"] .conflict-dialog{background:#20262d;border-color:#39414b;color:#e0e5eb}
+:root[data-theme="dark"] .conflict-object-choice,:root[data-theme="dark"] .conflict-rename{background:#292f37;border-color:#454e58}
+:root[data-theme="dark"] .conflict-object-choice.primary{background:#294036;border-color:#426b55}
+:root[data-theme="dark"] .conflict-object-name strong,:root[data-theme="dark"] .conflict-object-choice dd,:root[data-theme="dark"] .conflict-object-action{color:#d7dee5}
+:root[data-theme="dark"] .conflict-object-path,:root[data-theme="dark"] .conflict-object-action{border-color:#454e58}
+:root[data-theme="dark"] .conflict-choice{background:#292f37;border-color:#454e58;color:#d7dee5}
+:root[data-theme="dark"] .conflict-choice.primary{background:#294036;border-color:#426b55;color:#b5dfc5}
+:root[data-theme="dark"] .conflict-rename input{background:#20262d;border-color:#454e58;color:#d7dee5}
 @media(prefers-color-scheme:dark){
   :root[data-theme="system"] .history-menu,:root[data-theme="system"] .history-menu button{background:#20262d;border-color:#39414b}
   :root[data-theme="system"] .history-menu button:hover{background:#2a323b}
   :root[data-theme="system"] .history-menu strong{color:#d7dee5}
+  :root[data-theme="system"] .conflict-dialog{background:#20262d;border-color:#39414b;color:#e0e5eb}
+  :root[data-theme="system"] .conflict-object-choice,:root[data-theme="system"] .conflict-rename{background:#292f37;border-color:#454e58}
+  :root[data-theme="system"] .conflict-object-choice.primary{background:#294036;border-color:#426b55}
+  :root[data-theme="system"] .conflict-object-name strong,:root[data-theme="system"] .conflict-object-choice dd,:root[data-theme="system"] .conflict-object-action{color:#d7dee5}
+  :root[data-theme="system"] .conflict-object-path,:root[data-theme="system"] .conflict-object-action{border-color:#454e58}
+  :root[data-theme="system"] .conflict-choice{background:#292f37;border-color:#454e58;color:#d7dee5}
+  :root[data-theme="system"] .conflict-choice.primary{background:#294036;border-color:#426b55;color:#b5dfc5}
+  :root[data-theme="system"] .conflict-rename input{background:#20262d;border-color:#454e58;color:#d7dee5}
 }
 .directory-set-list{margin-top:16px;border-top:1px solid #edf0f2}
 .directory-set-row{display:flex;align-items:center;gap:7px;padding:9px 0;border-bottom:1px solid #edf0f2}

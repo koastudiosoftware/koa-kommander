@@ -17,10 +17,16 @@ const status = document.querySelector('#status-message');
 const summary = document.querySelector('#selection-summary');
 const menu = document.querySelector('#context-menu');
 const historyMenu = document.querySelector('#history-menu');
+const conflictBackdrop = document.querySelector('#conflict-backdrop');
+const conflictItems = document.querySelector('#conflict-items');
+const conflictActions = document.querySelector('#conflict-actions');
+const conflictRename = document.querySelector('#conflict-rename');
+const conflictRenameInput = document.querySelector('#conflict-rename-name');
 const settingsBackdrop = document.querySelector('#settings-backdrop');
 const settingsContent = document.querySelector('#settings-content');
 let settingsCategory = 'files';
 let directorySetDraft = null;
+let resolveConflictDecision = null;
 
 function savePreferences() {
   localStorage.setItem('koa-settings', JSON.stringify(preferences));
@@ -98,6 +104,71 @@ function toast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('visible'), 2400);
 }
+
+function suggestedCopyName(name) {
+  const extensionAt = name.lastIndexOf('.');
+  const hasExtension = extensionAt > 0;
+  const stem = hasExtension ? name.slice(0, extensionAt) : name;
+  const extension = hasExtension ? name.slice(extensionAt) : '';
+  return `${stem} (1)${extension}`;
+}
+function conflictObjectCard(label, item, choice, actionLabel, primary = false) {
+  const tag = choice ? 'button' : 'article';
+  const attributes = choice ? `type="button" data-conflict-choice="${choice}"` : '';
+  return `<${tag} class="conflict-object-choice ${primary ? 'primary' : ''}" ${attributes}><div class="conflict-object-heading">${label}</div><div class="conflict-object-name"><span class="file-icon ${kind(item)}">${icon(kind(item))}</span><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong></div><dl><div><dt>Type</dt><dd>${item.isDirectory ? 'Folder' : 'File'}</dd></div><div><dt>Size</dt><dd>${formatSize(item.size, item.isDirectory)}</dd></div><div><dt>Modified</dt><dd>${formatDate(item.modified)}</dd></div></dl><div class="conflict-object-path" title="${escapeHtml(item.path)}">${escapeHtml(item.path)}</div><div class="conflict-object-action">${actionLabel || 'Choose Rename below for this item type'}</div></${tag}>`;
+}
+function askTransferConflict(conflict) {
+  return new Promise((resolve) => {
+    resolveConflictDecision = resolve;
+    const incoming = conflict.sourceInfo;
+    const existing = conflict.targetInfo;
+    const bothFiles = !incoming.isDirectory && !existing.isDirectory;
+    const bothFolders = incoming.isDirectory && existing.isDirectory;
+    const newChoice = bothFiles ? 'overwrite' : bothFolders ? 'merge' : null;
+    const newAction = bothFiles ? 'Overwrite the existing file' : bothFolders ? 'Merge folders · matching files are replaced' : null;
+    conflictItems.innerHTML = `${conflictObjectCard('New item', incoming, newChoice, newAction, Boolean(newChoice))}${conflictObjectCard('Old item', existing, 'skip', 'Keep the existing item')}`;
+    conflictActions.innerHTML = '<button class="conflict-choice" data-conflict-choice="rename">Rename incoming item</button><button class="conflict-choice cancel" data-conflict-choice="cancel">Cancel operation</button>';
+    conflictRename.hidden = true;
+    const candidate = suggestedCopyName(pathParts(conflict.target).at(-1)?.label || incoming.name);
+    conflictRenameInput.value = candidate;
+    conflictBackdrop.hidden = false;
+    (conflictItems.querySelector('.primary') || conflictItems.querySelector('[data-conflict-choice]') || conflictActions.querySelector('[data-conflict-choice="rename"]'))?.focus();
+  });
+}
+function finishConflictDecision(decision) {
+  if (!resolveConflictDecision) return;
+  const resolve = resolveConflictDecision;
+  resolveConflictDecision = null;
+  conflictBackdrop.hidden = true;
+  resolve(decision);
+}
+conflictItems.addEventListener('click', (event) => {
+  const choice = event.target.closest('[data-conflict-choice]')?.dataset.conflictChoice;
+  if (choice) finishConflictDecision({ choice });
+});
+conflictActions.addEventListener('click', (event) => {
+  const choice = event.target.closest('[data-conflict-choice]')?.dataset.conflictChoice;
+  if (!choice) return;
+  if (choice === 'rename') {
+    conflictRename.hidden = false;
+    conflictRenameInput.focus();
+    conflictRenameInput.select();
+    return;
+  }
+  finishConflictDecision({ choice });
+});
+document.querySelector('[data-conflict-confirm-rename]').addEventListener('click', () => {
+  const name = conflictRenameInput.value.trim();
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) { toast('Enter a valid file name'); return; }
+  finishConflictDecision({ choice: 'rename', name });
+});
+conflictRenameInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.stopPropagation();
+    document.querySelector('[data-conflict-confirm-rename]').click();
+  }
+});
 
 async function navigate(side, directory, { historyMode = 'push', historyIndex = -1 } = {}) {
   const panel = panels[side];
@@ -521,15 +592,46 @@ function copySelection(side, cut) {
   setStatus(`${cut ? 'Cut' : 'Copied'} ${items.length} item${items.length === 1 ? '' : 's'}`);
   toast(`${cut ? 'Cut' : 'Copied'} ${items.length} item${items.length === 1 ? '' : 's'}`);
 }
+async function transferWithConflicts({ sources, destination, operation }) {
+  const results = [];
+  for (const source of sources) {
+    let [result] = await window.fileManager.transfer({ sources: [source], destination, operation });
+    while (result?.conflict) {
+      const decision = await askTransferConflict(result);
+      if (decision.choice === 'cancel') {
+        results.push({ source, ok: false, cancelled: true });
+        return results;
+      }
+      if (decision.choice === 'skip') {
+        results.push({ source, ok: false, skipped: true });
+        result = null;
+        break;
+      }
+      [result] = await window.fileManager.transfer({
+        sources: [source], destination, operation,
+        conflictAction: decision.choice,
+        renameTo: decision.name
+      });
+    }
+    if (result) results.push(result);
+  }
+  return results;
+}
 async function pasteSelection() {
   if (!clipboard?.paths.length) return;
   const operation = clipboard.operation;
-  const result = await window.fileManager.transfer({ sources: clipboard.paths, destination: panels[activeSide].path, operation });
+  const result = await transferWithConflicts({ sources: clipboard.paths, destination: panels[activeSide].path, operation });
   const succeeded = result.filter((item) => item.ok).length;
-  const failed = result.filter((item) => !item.ok);
-  if (operation === 'move' && !failed.length) clipboard = null;
+  const failed = result.find((item) => !item.ok && !item.cancelled && !item.skipped);
+  const cancelled = result.some((item) => item.cancelled);
+  const skipped = result.filter((item) => item.skipped).length;
+  if (operation === 'move' && !failed && !cancelled && succeeded === clipboard.paths.length) clipboard = null;
   await Promise.all([navigate('left', panels.left.path), navigate('right', panels.right.path)]);
-  toast(failed.length ? failed[0].error : `${operation === 'move' ? 'Moved' : 'Copied'} ${succeeded} item${succeeded === 1 ? '' : 's'}`);
+  if (failed) toast(failed.error);
+  else if (cancelled) toast(succeeded ? `${operation === 'move' ? 'Moved' : 'Copied'} ${succeeded} item${succeeded === 1 ? '' : 's'}; remaining items skipped` : 'Transfer cancelled');
+  else if (skipped && succeeded) toast(`${operation === 'move' ? 'Moved' : 'Copied'} ${succeeded} item${succeeded === 1 ? '' : 's'}; skipped ${skipped} existing item${skipped === 1 ? '' : 's'}`);
+  else if (skipped) toast(`Skipped ${skipped} existing item${skipped === 1 ? '' : 's'}`);
+  else toast(`${operation === 'move' ? 'Moved' : 'Copied'} ${succeeded} item${succeeded === 1 ? '' : 's'}`);
 }
 async function deleteSelection(side) {
   const items = getSelected(side);
@@ -561,10 +663,17 @@ async function handleDrop(event, destinationSide, destination) {
   let payload;
   try { payload = JSON.parse(event.dataTransfer.getData('application/x-koa-files')); } catch { return; }
   const operation = event.ctrlKey ? 'copy' : 'move';
-  const result = await window.fileManager.transfer({ sources: payload.paths, destination, operation });
-  const failed = result.find((item) => !item.ok);
+  const result = await transferWithConflicts({ sources: payload.paths, destination, operation });
+  const failed = result.find((item) => !item.ok && !item.cancelled && !item.skipped);
+  const cancelled = result.some((item) => item.cancelled);
   await Promise.all([navigate('left', panels.left.path), navigate('right', panels.right.path)]);
-  toast(failed ? failed.error : `${operation === 'copy' ? 'Copied' : 'Moved'} ${payload.paths.length} item${payload.paths.length === 1 ? '' : 's'}`);
+  const succeeded = result.filter((item) => item.ok).length;
+  const skipped = result.filter((item) => item.skipped).length;
+  if (failed) toast(failed.error);
+  else if (cancelled) toast(succeeded ? `${operation === 'copy' ? 'Copied' : 'Moved'} ${succeeded} item${succeeded === 1 ? '' : 's'}; remaining items skipped` : 'Transfer cancelled');
+  else if (skipped && succeeded) toast(`${operation === 'copy' ? 'Copied' : 'Moved'} ${succeeded} item${succeeded === 1 ? '' : 's'}; skipped ${skipped} existing item${skipped === 1 ? '' : 's'}`);
+  else if (skipped) toast(`Skipped ${skipped} existing item${skipped === 1 ? '' : 's'}`);
+  else toast(`${operation === 'copy' ? 'Copied' : 'Moved'} ${succeeded} item${succeeded === 1 ? '' : 's'}`);
 }
 
 document.addEventListener('click', (event) => {
@@ -584,6 +693,10 @@ document.addEventListener('click', (event) => {
   if (action === 'forward') moveHistory(activeSide, 1);
 });
 document.addEventListener('keydown', async (event) => {
+  if (!conflictBackdrop.hidden) {
+    if (event.key === 'Escape') finishConflictDecision({ choice: 'cancel' });
+    return;
+  }
   if (!settingsBackdrop.hidden) {
     if (event.key === 'Escape') closeSettings();
     return;

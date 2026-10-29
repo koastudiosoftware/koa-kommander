@@ -49,6 +49,17 @@ function fileInfo(entry, parent) {
   };
 }
 
+async function transferInfo(fullPath) {
+  const stats = await fs.stat(fullPath);
+  return {
+    name: path.basename(fullPath),
+    path: fullPath,
+    isDirectory: stats.isDirectory(),
+    size: stats.size,
+    modified: stats.mtime.toISOString()
+  };
+}
+
 ipcMain.handle('fs:roots', async () => {
   const roots = [];
   if (process.platform === 'win32') {
@@ -120,7 +131,7 @@ ipcMain.handle('fs:list', async (_event, directory) => {
   return { path: current, parent: path.dirname(current), entries: results };
 });
 
-ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation }) => {
+ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation, conflictAction, renameTo }) => {
   const targetDirectory = path.resolve(destination);
   const results = [];
   for (const rawSource of sources) {
@@ -129,15 +140,54 @@ ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation }
       results.push({ source, ok: false, error: 'A folder cannot be copied or moved into itself.' });
       continue;
     }
-    const target = path.join(targetDirectory, path.basename(source));
     try {
-      try {
-        await fs.lstat(target);
-        throw new Error(`“${path.basename(target)}” already exists here.`);
-      } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
+      const sourceStats = await fs.stat(source);
+      if (source === path.join(targetDirectory, path.basename(source))) {
+        results.push({ source, ok: false, error: 'Source and destination are the same.' });
+        continue;
       }
-      if (operation === 'move') {
+      let targetName = path.basename(source);
+      if (conflictAction === 'rename') {
+        targetName = String(renameTo || '').trim();
+        if (!targetName || targetName === '.' || targetName === '..' || path.basename(targetName) !== targetName) {
+          throw new Error('Enter a valid name for the incoming item.');
+        }
+      }
+      const target = path.join(targetDirectory, targetName);
+      if (source === target) {
+        results.push({ source, ok: false, error: 'Source and destination are the same.' });
+        continue;
+      }
+      let targetStats = null;
+      try { targetStats = await fs.stat(target); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+
+      if (targetStats && !conflictAction) {
+        results.push({
+          source, target, ok: false, conflict: true,
+          sourceInfo: await transferInfo(source),
+          targetInfo: await transferInfo(target)
+        });
+        continue;
+      }
+      if (conflictAction === 'cancel') {
+        results.push({ source, target, ok: false, cancelled: true });
+        continue;
+      }
+
+      if (targetStats && conflictAction === 'overwrite') {
+        if (sourceStats.isDirectory() || targetStats.isDirectory()) {
+          throw new Error('Only files can be overwritten. Choose Merge for two folders or Rename.');
+        }
+        await fs.copyFile(source, target);
+        if (operation === 'move') await fs.rm(source, { force: false });
+      } else if (targetStats && conflictAction === 'merge') {
+        if (!sourceStats.isDirectory() || !targetStats.isDirectory()) {
+          throw new Error('Only two folders can be merged. Choose Rename.');
+        }
+        await fs.cp(source, target, { recursive: true, force: true });
+        if (operation === 'move') await fs.rm(source, { recursive: true, force: false });
+      } else if (operation === 'move') {
         try {
           await fs.rename(source, target);
         } catch (error) {

@@ -39,6 +39,13 @@
 
   <div class="context-menu" id="context-menu" role="menu" hidden></div>
   <div class="history-menu" id="history-menu" role="menu" aria-label="Directory history" hidden></div>
+  <div class="drop-action-menu" id="drop-action-menu" role="menu" aria-label="Choose drag and drop action" hidden>
+    <button role="menuitem" data-drop-choice="copy">Copy here</button>
+    <button role="menuitem" data-drop-choice="move">Move here</button>
+    <button role="menuitem" data-drop-choice="shortcut">Create shortcut(s) here</button>
+    <div class="menu-separator"></div>
+    <button role="menuitem" data-drop-choice="cancel">Cancel</button>
+  </div>
   <div class="conflict-backdrop" id="conflict-backdrop" hidden>
     <section class="conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
       <header class="conflict-header"><div><h2 id="conflict-title">An item with this name already exists</h2><p>Choose what to do with the incoming item.</p></div></header>

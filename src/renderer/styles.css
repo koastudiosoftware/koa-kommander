@@ -146,6 +146,20 @@
 .dummy-tool:disabled{opacity:.4;cursor:default}
 .dummy-tool:disabled:hover{background:transparent}
 .history-menu[hidden]{display:none}
+.drop-action-menu[hidden]{display:none}
+.drop-action-menu{position:fixed;z-index:90;width:220px;padding:5px;background:#fff;border:1px solid #dfe3e6;border-radius:6px;box-shadow:0 8px 28px #1e293533;font-size:12px}
+.drop-action-menu button{width:100%;height:32px;display:flex;align-items:center;border:0;border-radius:4px;padding:0 9px;background:#fff;text-align:left;color:#333c45;font:inherit;cursor:pointer}
+.drop-action-menu button:hover{background:#f0f4f1}
+.drop-action-menu .menu-separator{height:1px;background:#edf0f2;margin:4px 6px}
+.panel.right-drop-target{box-shadow:inset 0 0 0 2px #6ea487}
+.panel [data-entry].right-drop-target{outline:2px solid #67a487;outline-offset:-2px;background:#eaf3ee}
+.right-dragging{user-select:none;cursor:grabbing}
+:root[data-theme="dark"] .drop-action-menu,:root[data-theme="dark"] .drop-action-menu button{background:#20262d;border-color:#39414b;color:#d7dee5}
+:root[data-theme="dark"] .drop-action-menu button:hover{background:#2a323b}
+@media(prefers-color-scheme:dark){
+  :root[data-theme="system"] .drop-action-menu,:root[data-theme="system"] .drop-action-menu button{background:#20262d;border-color:#39414b;color:#d7dee5}
+  :root[data-theme="system"] .drop-action-menu button:hover{background:#2a323b}
+}
 .history-menu{position:fixed;z-index:80;width:320px;max-height:334px;overflow:auto;padding:5px;background:#fff;border:1px solid #dfe3e6;border-radius:6px;box-shadow:0 8px 28px #1e293533}
 .history-menu button{width:100%;height:31px;display:block;padding:0 9px;border:0;border-radius:4px;background:#fff;text-align:left;color:#36404a;font:11px 'Segoe UI',Arial,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .history-menu button:hover{background:#f0f4f1}

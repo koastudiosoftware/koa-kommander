@@ -206,6 +206,33 @@ ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation, 
   return results;
 });
 
+ipcMain.handle('fs:create-shortcuts', async (_event, { sources, destination }) => {
+  if (process.platform !== 'win32') return sources.map((source) => ({ source, ok: false, error: 'Windows shortcuts are only supported on Windows.' }));
+  const targetDirectory = path.resolve(destination);
+  const results = [];
+  for (const rawSource of sources) {
+    const source = path.resolve(rawSource);
+    try {
+      const sourceInfo = await transferInfo(source);
+      const base = `${path.basename(source)} - Shortcut`;
+      let name = `${base}.lnk`;
+      let suffix = 2;
+      while (true) {
+        try { await fs.lstat(path.join(targetDirectory, name)); name = `${base} (${suffix++}).lnk`; }
+        catch (error) { if (error.code === 'ENOENT') break; throw error; }
+      }
+      const shortcutPath = path.join(targetDirectory, name);
+      const created = shell.writeShortcutLink(shortcutPath, 'create', {
+        target: source,
+        description: `Shortcut to ${sourceInfo.name}`
+      });
+      if (!created) throw new Error('Windows could not create the shortcut.');
+      results.push({ source, target: shortcutPath, ok: true });
+    } catch (error) { results.push({ source, ok: false, error: error.message }); }
+  }
+  return results;
+});
+
 ipcMain.handle('fs:delete', async (event, { entries, confirm }) => {
   const count = entries.length;
   const confirmation = confirm ? await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {

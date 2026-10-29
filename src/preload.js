@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('fileManager', {
   chooseDirectory: () => ipcRenderer.invoke('dialog:choose-directory'),
   list: (directory) => ipcRenderer.invoke('fs:list', directory),
   transfer: (request) => ipcRenderer.invoke('fs:transfer', request),
+  createShortcuts: (request) => ipcRenderer.invoke('fs:create-shortcuts', request),
   delete: (request) => ipcRenderer.invoke('fs:delete', request),
   open: (itemPath) => ipcRenderer.invoke('fs:open', itemPath),
   showInExplorer: (itemPath) => ipcRenderer.invoke('fs:show-in-explorer', itemPath),

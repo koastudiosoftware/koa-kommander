@@ -1,6 +1,22 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const fs = require('node:fs/promises');
+const { watch } = require('node:fs');
 const path = require('node:path');
+const directoryWatchers = new Map();
+
+function closeDirectoryWatcher(key) {
+  const record = directoryWatchers.get(key);
+  if (!record) return;
+  clearTimeout(record.timer);
+  record.watcher.close();
+  directoryWatchers.delete(key);
+}
+
+function closeWindowWatchers(webContentsId) {
+  for (const [key, record] of directoryWatchers) {
+    if (record.webContentsId === webContentsId) closeDirectoryWatcher(key);
+  }
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -20,6 +36,7 @@ function createWindow() {
 
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.webContents.once('destroyed', () => closeWindowWatchers(win.webContents.id));
 }
 
 function fileInfo(entry, parent) {
@@ -54,6 +71,32 @@ ipcMain.handle('dialog:choose-directory', async (event) => {
     properties: ['openDirectory']
   });
   return result.canceled ? null : result.filePaths[0] || null;
+});
+
+ipcMain.handle('fs:watch-directory', (event, { side, directory }) => {
+  if (side !== 'left' && side !== 'right') throw new Error('Invalid panel for directory watch.');
+  const key = `${event.sender.id}:${side}`;
+  closeDirectoryWatcher(key);
+  const currentDirectory = path.resolve(directory);
+  try {
+    const watcher = watch(currentDirectory, { persistent: false }, () => {
+      const record = directoryWatchers.get(key);
+      if (!record || record.watcher !== watcher) return;
+      clearTimeout(record.timer);
+      record.timer = setTimeout(() => {
+        if (!record.webContents.isDestroyed()) {
+          record.webContents.send('fs:directory-changed', { side, directory: currentDirectory });
+        }
+      }, 150);
+    });
+    watcher.on('error', () => {
+      if (directoryWatchers.get(key)?.watcher === watcher) closeDirectoryWatcher(key);
+    });
+    directoryWatchers.set(key, { watcher, webContents: event.sender, webContentsId: event.sender.id, directory: currentDirectory, timer: null });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 });
 
 ipcMain.handle('fs:list', async (_event, directory) => {

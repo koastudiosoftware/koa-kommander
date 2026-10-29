@@ -1,6 +1,6 @@
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1 },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1 }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null }
 };
 let activeSide = 'left';
 let clipboard = null;
@@ -106,6 +106,13 @@ async function navigate(side, directory, { historyMode = 'push', historyIndex = 
     const result = await window.fileManager.list(directory);
     panel.path = result.path;
     panel.entries = result.entries;
+    if (panel.watchPath !== result.path) {
+      const watchedPath = result.path;
+      panel.watchPath = watchedPath;
+      window.fileManager.watchDirectory(side, watchedPath).then((watchResult) => {
+        if (!watchResult.ok && panel.watchPath === watchedPath) panel.watchPath = null;
+      }).catch(() => { if (panel.watchPath === watchedPath) panel.watchPath = null; });
+    }
     if (historyMode === 'move') panel.historyIndex = historyIndex;
     else if (historyMode === 'push' && panel.history.at(-1) !== result.path) {
       panel.history = panel.history.slice(0, panel.historyIndex + 1);
@@ -282,6 +289,19 @@ function bindHistoryLongPress() {
   });
 }
 bindHistoryLongPress();
+window.fileManager.onDirectoryChanged(({ side, directory }) => {
+  const panel = panels[side];
+  if (!panel || panel.path !== directory) return;
+  window.fileManager.list(directory).then((result) => {
+    if (panel.path !== directory) return;
+    panel.entries = result.entries;
+    const availablePaths = new Set(result.entries.map((entry) => entry.path));
+    for (const selectedPath of panel.selected) {
+      if (!availablePaths.has(selectedPath)) panel.selected.delete(selectedPath);
+    }
+    renderPanel(side);
+  }).catch(() => {});
+});
 document.addEventListener('auxclick', (event) => {
   if (event.button !== 3 && event.button !== 4) return;
   event.preventDefault();

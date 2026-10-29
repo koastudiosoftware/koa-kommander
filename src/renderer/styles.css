@@ -108,6 +108,20 @@
 .bookmark-remove{width:25px;height:25px;border:0;border-radius:4px;background:transparent;color:#89929b;font-size:18px;cursor:pointer}
 .bookmark-remove:hover{background:#f6eaea;color:#a34d4d}
 .settings-empty{padding:18px 0;color:#969fa7;font-size:11px}
+.dummy-tool:disabled{opacity:.4;cursor:default}
+.dummy-tool:disabled:hover{background:transparent}
+.history-menu[hidden]{display:none}
+.history-menu{position:fixed;z-index:80;width:320px;max-height:334px;overflow:auto;padding:5px;background:#fff;border:1px solid #dfe3e6;border-radius:6px;box-shadow:0 8px 28px #1e293533}
+.history-menu button{width:100%;height:31px;display:block;padding:0 9px;border:0;border-radius:4px;background:#fff;text-align:left;color:#36404a;font:11px 'Segoe UI',Arial,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.history-menu button:hover{background:#f0f4f1}
+:root[data-theme="dark"] .history-menu,:root[data-theme="dark"] .history-menu button{background:#20262d;border-color:#39414b}
+:root[data-theme="dark"] .history-menu button:hover{background:#2a323b}
+:root[data-theme="dark"] .history-menu strong{color:#d7dee5}
+@media(prefers-color-scheme:dark){
+  :root[data-theme="system"] .history-menu,:root[data-theme="system"] .history-menu button{background:#20262d;border-color:#39414b}
+  :root[data-theme="system"] .history-menu button:hover{background:#2a323b}
+  :root[data-theme="system"] .history-menu strong{color:#d7dee5}
+}
 .directory-set-list{margin-top:16px;border-top:1px solid #edf0f2}
 .directory-set-row{display:flex;align-items:center;gap:7px;padding:9px 0;border-bottom:1px solid #edf0f2}
 .directory-set-summary{min-width:0;flex:1}

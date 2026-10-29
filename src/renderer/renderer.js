@@ -1,6 +1,6 @@
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc' },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc' }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1 },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1 }
 };
 let activeSide = 'left';
 let clipboard = null;
@@ -16,6 +16,7 @@ delete preferences.bookmarks;
 const status = document.querySelector('#status-message');
 const summary = document.querySelector('#selection-summary');
 const menu = document.querySelector('#context-menu');
+const historyMenu = document.querySelector('#history-menu');
 const settingsBackdrop = document.querySelector('#settings-backdrop');
 const settingsContent = document.querySelector('#settings-content');
 let settingsCategory = 'files';
@@ -98,13 +99,22 @@ function toast(message) {
   toastTimer = setTimeout(() => el.classList.remove('visible'), 2400);
 }
 
-async function navigate(side, directory) {
+async function navigate(side, directory, { historyMode = 'push', historyIndex = -1 } = {}) {
   const panel = panels[side];
   setStatus('Loading folder…');
   try {
     const result = await window.fileManager.list(directory);
     panel.path = result.path;
     panel.entries = result.entries;
+    if (historyMode === 'move') panel.historyIndex = historyIndex;
+    else if (historyMode === 'push' && panel.history.at(-1) !== result.path) {
+      panel.history = panel.history.slice(0, panel.historyIndex + 1);
+      panel.history.push(result.path);
+      panel.historyIndex = panel.history.length - 1;
+    } else if (historyMode === 'push' && panel.historyIndex < 0) {
+      panel.history = [result.path];
+      panel.historyIndex = 0;
+    }
     panel.selected.clear();
     renderPanel(side);
     setStatus('Ready');
@@ -196,7 +206,82 @@ function updateSummary() {
   const count = panel.selected.size;
   const bytes = panel.entries.filter((entry) => panel.selected.has(entry.path)).reduce((sum, entry) => sum + (entry.size || 0), 0);
   summary.textContent = count ? `${count} selected · ${formatSize(bytes, false)}` : 'Nothing selected';
+  updateHistoryButtons();
 }
+function updateHistoryButtons() {
+  const panel = panels[activeSide];
+  const back = document.querySelector('[data-action="back"]');
+  const forward = document.querySelector('[data-action="forward"]');
+  back.disabled = panel.historyIndex <= 0;
+  forward.disabled = panel.historyIndex < 0 || panel.historyIndex >= panel.history.length - 1;
+}
+function moveHistory(side, offset) {
+  const panel = panels[side];
+  const targetIndex = panel.historyIndex + offset;
+  if (targetIndex < 0 || targetIndex >= panel.history.length) return;
+  moveHistoryTo(side, targetIndex);
+}
+function moveHistoryTo(side, targetIndex) {
+  const panel = panels[side];
+  if (targetIndex < 0 || targetIndex >= panel.history.length || targetIndex === panel.historyIndex) return;
+  navigate(side, panel.history[targetIndex], { historyMode: 'move', historyIndex: targetIndex });
+}
+function showHistoryMenu(action, button) {
+  const panel = panels[activeSide];
+  const indices = action === 'back'
+    ? Array.from({ length: Math.max(0, panel.historyIndex) }, (_, index) => panel.historyIndex - index - 1)
+    : Array.from({ length: Math.max(0, panel.history.length - panel.historyIndex - 1) }, (_, index) => panel.historyIndex + index + 1);
+  if (!indices.length) return;
+  const side = activeSide;
+  historyMenu.innerHTML = indices.map((index) => {
+    const directory = panel.history[index];
+    return `<button role="menuitem" data-history-side="${side}" data-history-index="${index}" title="${escapeHtml(directory)}">${escapeHtml(directory)}</button>`;
+  }).join('');
+  const bounds = button.getBoundingClientRect();
+  historyMenu.hidden = false;
+  historyMenu.style.left = `${Math.max(8, Math.min(bounds.left, innerWidth - 330))}px`;
+  historyMenu.style.top = `${Math.max(8, Math.min(bounds.bottom + 4, innerHeight - Math.min(historyMenu.scrollHeight, 334) - 8))}px`;
+}
+function bindHistoryLongPress() {
+  document.querySelectorAll('[data-action="back"],[data-action="forward"]').forEach((button) => {
+    let holdTimer = null;
+    let startX = 0;
+    let startY = 0;
+    button.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || button.disabled) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      button.setPointerCapture(event.pointerId);
+      holdTimer = setTimeout(() => {
+        showHistoryMenu(button.dataset.action, button);
+        button.dataset.historyLongPress = 'true';
+      }, 450);
+    });
+    const clearHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+    button.addEventListener('pointermove', (event) => {
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) > 8) clearHold();
+    });
+    button.addEventListener('pointerup', clearHold);
+    button.addEventListener('pointercancel', clearHold);
+    button.addEventListener('click', (event) => {
+      if (button.dataset.historyLongPress === 'true') {
+        delete button.dataset.historyLongPress;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    });
+  });
+  historyMenu.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-history-index]');
+    if (!item) return;
+    historyMenu.hidden = true;
+    moveHistoryTo(item.dataset.historySide, Number(item.dataset.historyIndex));
+  });
+  document.addEventListener('mousedown', (event) => {
+    if (!historyMenu.contains(event.target)) historyMenu.hidden = true;
+  });
+}
+bindHistoryLongPress();
 function directorySetLabel(set) {
   if (set.name?.trim()) return set.name.trim();
   if (set.type === 'pair') return `${bookmarkLabel(set.leftPath)} ↔ ${bookmarkLabel(set.rightPath)}`;
@@ -469,6 +554,8 @@ document.addEventListener('click', (event) => {
   if (action === 'rename') renameSelection(activeSide);
   if (action === 'delete') deleteSelection(activeSide);
   if (action === 'new-folder') createFolder(activeSide);
+  if (action === 'back') moveHistory(activeSide, -1);
+  if (action === 'forward') moveHistory(activeSide, 1);
 });
 document.addEventListener('keydown', async (event) => {
   if (!settingsBackdrop.hidden) {
@@ -486,6 +573,7 @@ document.addEventListener('keydown', async (event) => {
   }
   else if (event.key === 'Escape') {
     menu.hidden = true;
+    historyMenu.hidden = true;
     if (!settingsBackdrop.hidden) closeSettings();
   }
 });

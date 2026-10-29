@@ -12,8 +12,8 @@
     <div class="tool-row" aria-label="Toolbar">
       <button class="dummy-tool" data-action="new-folder" title="New folder" aria-label="New folder"><svg viewBox="0 0 24 24"><path d="M3 6.5h7l2 2H21v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 11v6M9 14h6"/></svg></button>
       <span class="tool-divider"></span>
-      <button class="dummy-tool" title="Back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m14.5 5-7 7 7 7M8 12h12"/></svg></button>
-      <button class="dummy-tool" title="Forward" aria-label="Forward"><svg viewBox="0 0 24 24"><path d="m9.5 5 7 7-7 7M16 12H4"/></svg></button>
+      <button class="dummy-tool" data-action="back" title="Back" aria-label="Back" disabled><svg viewBox="0 0 24 24"><path d="m14.5 5-7 7 7 7M8 12h12"/></svg></button>
+      <button class="dummy-tool" data-action="forward" title="Forward" aria-label="Forward" disabled><svg viewBox="0 0 24 24"><path d="m9.5 5 7 7-7 7M16 12H4"/></svg></button>
       <span class="tool-divider"></span>
       <button class="dummy-tool" data-action="copy" title="Copy (Ctrl+C)" aria-label="Copy"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
       <button class="dummy-tool" data-action="cut" title="Cut (Ctrl+X)" aria-label="Cut"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><path d="m8 7 12 12M8 17 20 5"/></svg></button>
@@ -38,6 +38,7 @@
   </footer>
 
   <div class="context-menu" id="context-menu" role="menu" hidden></div>
+  <div class="history-menu" id="history-menu" role="menu" aria-label="Directory history" hidden></div>
   <div class="settings-backdrop" id="settings-backdrop" hidden>
     <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="settings-header"><div><h1 id="settings-title">Settings</h1><p>Configure Koa Kommander</p></div><button class="settings-close" id="settings-close" aria-label="Close settings" title="Close">×</button></header>

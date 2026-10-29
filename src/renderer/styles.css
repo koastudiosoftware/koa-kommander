@@ -270,3 +270,12 @@
   :root[data-theme="system"] .directory-set-field input,:root[data-theme="system"] .directory-set-field select,:root[data-theme="system"] .directory-path-input button,:root[data-theme="system"] .directory-set-open,:root[data-theme="system"] .settings-secondary{background:#292f37;border-color:#454e58;color:#d7dee5}
   :root[data-theme="system"] .setting-option,:root[data-theme="system"] .bookmark-list,:root[data-theme="system"] .bookmark-row{border-color:#39414b}
 }
+.path-edit-input{height:100%;min-width:0;flex:1;padding:0;border:0;outline:0;background:transparent;color:#303943;font:inherit}
+.pathbar.is-invalid,.panel.is-active .pathbar.is-invalid{background:#fff0f0;border-color:#e4aaaa}
+.pathbar.is-invalid .path-edit-input{color:#8c4444}
+:root[data-theme="dark"] .panel .pathbar.is-invalid{background:#432f33;border-color:#87545a}
+:root[data-theme="dark"] .pathbar.is-invalid .path-edit-input{color:#f0c3c5}
+@media(prefers-color-scheme:dark){
+  :root[data-theme="system"] .panel .pathbar.is-invalid{background:#432f33;border-color:#87545a}
+  :root[data-theme="system"] .pathbar.is-invalid .path-edit-input{color:#f0c3c5}
+}

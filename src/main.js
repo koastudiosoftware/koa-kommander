@@ -8,9 +8,25 @@ const directoryWatchers = new Map();
 const maxThumbnailPixels = 192;
 const thumbnailCachePrefix = 'koa-thumbnail-';
 
+function expandEnvironmentVariables(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/%([^%]+)%/g, (placeholder, name) => {
+    let variable = process.env[name];
+    if (variable === undefined && process.platform === 'win32') {
+      const match = Object.keys(process.env).find((key) => key.toLowerCase() === name.toLowerCase());
+      if (match) variable = process.env[match];
+    }
+    return variable === undefined ? placeholder : variable;
+  });
+}
+
+function resolvePath(value) {
+  return path.resolve(expandEnvironmentVariables(value));
+}
+
 function thumbnailCacheDirectory(directory) {
   return typeof directory === 'string' && directory.trim()
-    ? path.resolve(directory)
+    ? resolvePath(directory)
     : path.join(app.getPath('userData'), 'thumbnail-cache');
 }
 
@@ -141,7 +157,7 @@ ipcMain.handle('fs:watch-directory', (event, { side, directory }) => {
   if (side !== 'left' && side !== 'right') throw new Error('Invalid panel for directory watch.');
   const key = `${event.sender.id}:${side}`;
   closeDirectoryWatcher(key);
-  const currentDirectory = path.resolve(directory);
+  const currentDirectory = resolvePath(directory);
   try {
     const watcher = watch(currentDirectory, { persistent: false }, () => {
       const record = directoryWatchers.get(key);
@@ -164,7 +180,7 @@ ipcMain.handle('fs:watch-directory', (event, { side, directory }) => {
 });
 
 ipcMain.handle('fs:list', async (_event, directory) => {
-  const current = path.resolve(directory || app.getPath('home'));
+  const current = resolvePath(directory || app.getPath('home'));
   const entries = await fs.readdir(current, { withFileTypes: true });
   const results = await Promise.all(entries.map(async (entry) => {
     const item = fileInfo(entry, current);
@@ -200,7 +216,7 @@ ipcMain.handle('fs:clear-thumbnail-cache', async (_event, directory) => {
 });
 
 ipcMain.handle('fs:thumbnail', async (_event, { itemPath, cachePath }) => {
-  const fullPath = path.resolve(itemPath);
+  const fullPath = resolvePath(itemPath);
   const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic']);
   if (!imageExtensions.has(path.extname(fullPath).toLowerCase())) return null;
   try {
@@ -248,17 +264,17 @@ ipcMain.handle('fs:thumbnail', async (_event, { itemPath, cachePath }) => {
 });
 
 ipcMain.handle('fs:disk-space', async (_event, directory) => {
-  const stats = await fs.statfs(path.resolve(directory));
+  const stats = await fs.statfs(resolvePath(directory));
   const total = stats.blocks * stats.bsize;
   const free = (stats.bavail ?? stats.bfree) * stats.bsize;
   return { total, free, used: Math.max(0, total - free) };
 });
 
 ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation, conflictAction, renameTo }) => {
-  const targetDirectory = path.resolve(destination);
+  const targetDirectory = resolvePath(destination);
   const results = [];
   for (const rawSource of sources) {
-    const source = path.resolve(rawSource);
+    const source = resolvePath(rawSource);
     if (source === targetDirectory || targetDirectory.startsWith(`${source}${path.sep}`)) {
       results.push({ source, ok: false, error: 'A folder cannot be copied or moved into itself.' });
       continue;
@@ -331,10 +347,10 @@ ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation, 
 
 ipcMain.handle('fs:create-shortcuts', async (_event, { sources, destination }) => {
   if (process.platform !== 'win32') return sources.map((source) => ({ source, ok: false, error: 'Windows shortcuts are only supported on Windows.' }));
-  const targetDirectory = path.resolve(destination);
+  const targetDirectory = resolvePath(destination);
   const results = [];
   for (const rawSource of sources) {
-    const source = path.resolve(rawSource);
+    const source = resolvePath(rawSource);
     try {
       const sourceInfo = await transferInfo(source);
       const base = `${path.basename(source)} - Shortcut`;
@@ -376,8 +392,8 @@ ipcMain.handle('fs:delete', async (event, { entries, confirm }) => {
   const results = [];
   for (const item of entries) {
     try {
-      if (permanent) await fs.rm(path.resolve(item), { recursive: true, force: false });
-      else await shell.trashItem(path.resolve(item));
+      if (permanent) await fs.rm(resolvePath(item), { recursive: true, force: false });
+      else await shell.trashItem(resolvePath(item));
       results.push({ path: item, ok: true });
     } catch (error) {
       results.push({ path: item, ok: false, error: error.message });
@@ -386,7 +402,7 @@ ipcMain.handle('fs:delete', async (event, { entries, confirm }) => {
   return { cancelled: false, permanent, results };
 });
 ipcMain.handle('fs:open', async (_event, itemPath) => {
-  const resolved = path.resolve(itemPath);
+  const resolved = resolvePath(itemPath);
   const stats = await fs.stat(resolved);
   if (stats.isDirectory()) return { navigateTo: resolved };
   const error = await shell.openPath(resolved);
@@ -394,19 +410,19 @@ ipcMain.handle('fs:open', async (_event, itemPath) => {
 });
 
 ipcMain.handle('fs:show-in-explorer', async (_event, itemPath) => {
-  shell.showItemInFolder(path.resolve(itemPath));
+  shell.showItemInFolder(resolvePath(itemPath));
 });
 
 ipcMain.handle('fs:create-folder', async (_event, { parent, name }) => {
   const safeName = path.basename(name.trim());
   if (!safeName || safeName !== name.trim()) throw new Error('Enter a valid folder name.');
-  const destination = path.join(path.resolve(parent), safeName);
+  const destination = path.join(resolvePath(parent), safeName);
   await fs.mkdir(destination);
   return destination;
 });
 
 ipcMain.handle('fs:rename', async (_event, { source: rawSource, name: rawName }) => {
-  const source = path.resolve(rawSource);
+  const source = resolvePath(rawSource);
   const name = String(rawName).trim();
   const safeName = path.basename(name);
   if (!name || name === '.' || name === '..' || safeName !== name) {

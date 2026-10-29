@@ -266,6 +266,48 @@ function panelChrome(side) {
     ${panel.view === 'icons' ? `<label class="size-control" title="Thumbnail size"><span data-size-value>${panel.iconSize}</span><input type="range" min="32" max="160" step="8" value="${panel.iconSize}" data-action="icon-size" aria-label="Thumbnail size"></label>` : ''}
   </div>`;
 }
+function editPanelPath(side) {
+  const panel = panels[side];
+  const pathbar = panel.element.querySelector('.pathbar');
+  if (!pathbar || pathbar.querySelector('.path-edit-input')) return;
+  pathbar.innerHTML = `<input class="path-edit-input" type="text" aria-label="Current folder path" spellcheck="false" value="${escapeHtml(panel.path || '')}">`;
+  pathbar.classList.remove('is-invalid');
+  const input = pathbar.querySelector('.path-edit-input');
+  let submitting = false;
+  input.focus();
+  input.select();
+  input.addEventListener('input', () => {
+    pathbar.classList.remove('is-invalid');
+    input.removeAttribute('aria-invalid');
+  });
+  input.addEventListener('keydown', async (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      renderPanel(side);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      const directory = input.value.trim();
+      if (!directory) {
+        pathbar.classList.add('is-invalid');
+        input.setAttribute('aria-invalid', 'true');
+        return;
+      }
+      submitting = true;
+      const opened = await navigate(side, directory);
+      submitting = false;
+      if (!opened && input.isConnected) {
+        pathbar.classList.add('is-invalid');
+        input.setAttribute('aria-invalid', 'true');
+        input.focus();
+      }
+    }
+  });
+  input.addEventListener('blur', () => {
+    if (!submitting && input.isConnected && !pathbar.classList.contains('is-invalid')) renderPanel(side);
+  });
+}
 function gridIcon(type) {
   return type === 'details'
     ? '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/><path d="M5 3v2M5 7v2M5 11v2"/></svg>'
@@ -584,6 +626,9 @@ async function createFolder(side) {
 function bindPanel(side) {
   const panel = panels[side];
   const element = panel.element;
+  element.querySelector('.pathbar')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) editPanelPath(side);
+  });
   element.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => {
     const view = button.dataset.view;
     if (panel.view === view) return;

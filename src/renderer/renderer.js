@@ -1,7 +1,16 @@
+let savedLayout = {};
+try { savedLayout = JSON.parse(localStorage.getItem('koa-layout') || '{}') || {}; }
+catch { savedLayout = {}; }
+function restoreColumns(columns) {
+  if (!Array.isArray(columns) || columns.length !== 3 || columns.some((width) => !Number.isFinite(width) || width <= 0)) return [58, 17, 25];
+  const total = columns.reduce((sum, width) => sum + width, 0);
+  return columns.map((width) => width / total * 100);
+}
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: [58, 17, 25], sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null }
 };
+let layoutInitialized = false;
 let activeSide = 'left';
 let clipboard = null;
 let toastTimer;
@@ -34,6 +43,16 @@ let suppressRightContextUntil = 0;
 let diskSpaceTimer = null;
 let diskSpaceRequestId = 0;
 let displayedSpacePath = null;
+function persistLayout() {
+  if (!layoutInitialized) return;
+  try {
+    localStorage.setItem('koa-layout', JSON.stringify({
+      panelRatio,
+      left: { path: panels.left.path, columns: panels.left.columns },
+      right: { path: panels.right.path, columns: panels.right.columns }
+    }));
+  } catch { /* Keep the file manager usable when storage is unavailable. */ }
+}
 
 function savePreferences() {
   localStorage.setItem('koa-settings', JSON.stringify(preferences));
@@ -202,10 +221,13 @@ async function navigate(side, directory, { historyMode = 'push', historyIndex = 
     }
     panel.selected.clear();
     renderPanel(side);
+    persistLayout();
     setStatus('Ready');
+    return true;
   } catch (error) {
     toast(`Could not open folder: ${error.message}`);
     setStatus('Could not load folder');
+    return false;
   }
 }
 
@@ -530,6 +552,7 @@ function bindPanel(side) {
       startWidths = null;
       grip.classList.remove('is-dragging');
       if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId);
+      persistLayout();
     };
     grip.addEventListener('pointerup', finishResize);
     grip.addEventListener('pointercancel', finishResize);
@@ -977,9 +1000,16 @@ async function initialize() {
   const home = await window.fileManager.list(undefined).catch(() => null);
   const start = home?.path || 'C:\\';
   const docs = `${start.replace(/[\\/]$/, '')}${start.includes('\\') ? '\\' : '/'}Documents`;
-  await navigate('left', start);
-  const rightExists = await window.fileManager.list(docs).catch(() => null);
+  const savedLeft = typeof savedLayout.left?.path === 'string' ? savedLayout.left.path : null;
+  const savedRight = typeof savedLayout.right?.path === 'string' ? savedLayout.right.path : null;
+  const leftOpened = await navigate('left', savedLeft || start);
+  if (!leftOpened && savedLeft) await navigate('left', start);
+  const rightStart = savedRight || docs;
+  let rightExists = await window.fileManager.list(rightStart).catch(() => null);
+  if (!rightExists && savedRight) rightExists = await window.fileManager.list(docs).catch(() => null);
   await navigate('right', rightExists?.path || start);
+  layoutInitialized = true;
+  persistLayout();
 }
 initialize();
 
@@ -1031,7 +1061,7 @@ document.querySelectorAll('.menu-group').forEach((group) => {
 
 const workspaceElement = document.querySelector('.workspace');
 const splitterElement = document.querySelector('.splitter');
-let panelRatio = 0.5;
+let panelRatio = Number.isFinite(savedLayout.panelRatio) ? savedLayout.panelRatio : 0.5;
 function setPanelRatio(ratio) {
   const availableWidth = Math.max(1, workspaceElement.clientWidth - splitterElement.offsetWidth);
   const minimumRatio = Math.min(0.5, 240 / availableWidth);
@@ -1040,6 +1070,7 @@ function setPanelRatio(ratio) {
   workspaceElement.style.setProperty('--right-panel', `${1 - panelRatio}fr`);
   splitterElement.setAttribute('aria-valuenow', String(Math.round(panelRatio * 100)));
 }
+setPanelRatio(panelRatio);
 let resizingPointerId = null;
 splitterElement.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
@@ -1061,6 +1092,7 @@ function stopPanelResize(event) {
   resizingPointerId = null;
   splitterElement.classList.remove('is-dragging');
   if (splitterElement.hasPointerCapture(event.pointerId)) splitterElement.releasePointerCapture(event.pointerId);
+  persistLayout();
 }
 splitterElement.addEventListener('pointerup', stopPanelResize);
 splitterElement.addEventListener('pointercancel', stopPanelResize);
@@ -1068,8 +1100,10 @@ splitterElement.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
     setPanelRatio(panelRatio + (event.key === 'ArrowRight' ? 0.01 : -0.01));
+    persistLayout();
   }
 });
+window.addEventListener('beforeunload', persistLayout);
 
 
 

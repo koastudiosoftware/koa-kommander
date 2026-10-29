@@ -53,6 +53,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#f4f6f8',
+    icon: path.join(__dirname, 'assets', 'koa-studio-logo.ico'),
     title: 'Koa Kommander',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

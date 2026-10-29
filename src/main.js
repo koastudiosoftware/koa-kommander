@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const { watch } = require('node:fs');
 const path = require('node:path');
 const directoryWatchers = new Map();
@@ -18,10 +19,37 @@ function closeWindowWatchers(webContentsId) {
   }
 }
 
+function readWindowState() {
+  try {
+    const statePath = path.join(app.getPath('userData'), 'window-state.json');
+    const saved = JSON.parse(fsSync.readFileSync(statePath, 'utf8'));
+    return {
+      width: Number.isInteger(saved.width) && saved.width >= 900 ? saved.width : 1440,
+      height: Number.isInteger(saved.height) && saved.height >= 600 ? saved.height : 900,
+      maximized: saved.maximized === true
+    };
+  } catch {
+    return { width: 1440, height: 900, maximized: false };
+  }
+}
+
+function saveWindowState(win) {
+  if (win.isDestroyed()) return;
+  const { width, height } = win.getNormalBounds();
+  const statePath = path.join(app.getPath('userData'), 'window-state.json');
+  try {
+    fsSync.mkdirSync(path.dirname(statePath), { recursive: true });
+    fsSync.writeFileSync(statePath, JSON.stringify({ width, height, maximized: win.isMaximized() }));
+  } catch (error) {
+    console.error('Could not save window size:', error);
+  }
+}
+
 function createWindow() {
+  const windowState = readWindowState();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: windowState.width,
+    height: windowState.height,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#f4f6f8',
@@ -33,6 +61,20 @@ function createWindow() {
       sandbox: true
     }
   });
+
+  let saveTimer;
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveWindowState(win), 250);
+  };
+  win.on('resize', scheduleSave);
+  win.on('maximize', scheduleSave);
+  win.on('unmaximize', scheduleSave);
+  win.on('close', () => {
+    clearTimeout(saveTimer);
+    saveWindowState(win);
+  });
+  if (windowState.maximized) win.maximize();
 
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));

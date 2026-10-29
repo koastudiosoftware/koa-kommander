@@ -302,3 +302,24 @@
   :root[data-theme="system"] .directory-set-menu button:hover{background:#2a323b}
   :root[data-theme="system"] .directory-set-menu small,:root[data-theme="system"] .directory-set-menu-empty,:root[data-theme="system"] .directory-set-location-label,:root[data-theme="system"] .directory-set-location-path{color:#aeb8c2}
 }
+.name-dialog-backdrop[hidden],.about-backdrop[hidden]{display:none}
+.name-dialog-backdrop,.about-backdrop{position:fixed;inset:0;z-index:130;display:flex;align-items:center;justify-content:center;padding:24px;background:#17212b70}
+.name-dialog,.about-dialog{position:relative;width:min(390px,calc(100vw - 40px));padding:24px;background:#fff;border:1px solid #dfe4e8;border-radius:9px;box-shadow:0 18px 54px #11192345;color:#27313a}
+.name-dialog h2,.about-dialog h2{margin:0 0 18px;font-size:16px;font-weight:650}
+.name-dialog label{display:block;margin-bottom:7px;color:#46515b;font-size:11px;font-weight:600}
+.name-dialog input{width:100%;height:34px;padding:0 9px;border:1px solid #cfd7dd;border-radius:5px;background:#fff;color:#35404a;font:12px 'Segoe UI',Arial,sans-serif}
+.name-dialog input:focus{outline:2px solid #8db6a2;outline-offset:1px}
+.name-dialog form footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.about-dialog{text-align:center;padding:24px 30px 28px}
+.about-close{position:absolute;top:8px;right:8px}
+.about-dialog img{display:block;width:112px;height:112px;object-fit:contain;margin:4px auto 12px}
+.about-dialog h2{margin:0;font-size:18px}
+.about-dialog p{margin:6px 0 0;color:#7d8791;font-size:11px}
+:root[data-theme="dark"] .name-dialog,:root[data-theme="dark"] .about-dialog{background:#20262d;border-color:#39414b;color:#e0e5eb}
+:root[data-theme="dark"] .name-dialog label,:root[data-theme="dark"] .name-dialog input,:root[data-theme="dark"] .about-dialog p{color:#d7dee5}
+:root[data-theme="dark"] .name-dialog input{background:#292f37;border-color:#454e58}
+@media(prefers-color-scheme:dark){
+  :root[data-theme="system"] .name-dialog,:root[data-theme="system"] .about-dialog{background:#20262d;border-color:#39414b;color:#e0e5eb}
+  :root[data-theme="system"] .name-dialog label,:root[data-theme="system"] .name-dialog input,:root[data-theme="system"] .about-dialog p{color:#d7dee5}
+  :root[data-theme="system"] .name-dialog input{background:#292f37;border-color:#454e58}
+}

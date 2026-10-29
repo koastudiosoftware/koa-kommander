@@ -44,10 +44,15 @@ const conflictRename = document.querySelector('#conflict-rename');
 const conflictRenameInput = document.querySelector('#conflict-rename-name');
 const settingsBackdrop = document.querySelector('#settings-backdrop');
 const settingsContent = document.querySelector('#settings-content');
+const nameDialogBackdrop = document.querySelector('#name-dialog-backdrop');
+const nameDialogForm = document.querySelector('#name-dialog-form');
+const nameDialogInput = document.querySelector('#name-dialog-input');
+const aboutBackdrop = document.querySelector('#about-backdrop');
 let settingsCategory = 'files';
 let defaultThumbnailCachePath = '';
 let directorySetDraft = null;
 let resolveConflictDecision = null;
+let resolveNameDialog = null;
 let rightDragCandidate = null;
 let pendingRightDrop = null;
 let suppressRightContextUntil = 0;
@@ -646,6 +651,39 @@ function closeSettings() {
   settingsBackdrop.hidden = true;
   document.querySelector('#settings-button').focus();
 }
+function askForName({ title, label, value = '', confirmLabel }) {
+  nameDialogBackdrop.querySelector('#name-dialog-title').textContent = title;
+  nameDialogBackdrop.querySelector('#name-dialog-label').textContent = label;
+  nameDialogInput.value = value;
+  nameDialogBackdrop.querySelector('#name-dialog-submit').textContent = confirmLabel;
+  nameDialogBackdrop.hidden = false;
+  nameDialogInput.focus();
+  nameDialogInput.select();
+  return new Promise((resolve) => { resolveNameDialog = resolve; });
+}
+function finishNameDialog(value) {
+  if (nameDialogBackdrop.hidden) return;
+  nameDialogBackdrop.hidden = true;
+  const resolve = resolveNameDialog;
+  resolveNameDialog = null;
+  resolve?.(value);
+}
+async function openAbout() {
+  aboutBackdrop.hidden = false;
+  document.querySelector('#about-close').focus();
+  const version = aboutBackdrop.querySelector('#about-version');
+  version.textContent = 'Version…';
+  try {
+    const info = await window.fileManager.versionInfo();
+    if (!aboutBackdrop.hidden) version.textContent = `Version ${info.version}`;
+  } catch {
+    if (!aboutBackdrop.hidden) version.textContent = 'Version unavailable';
+  }
+}
+function closeAbout() {
+  aboutBackdrop.hidden = true;
+  document.querySelector('#about-button').focus();
+}
 function getSelected(side) {
   const panel = panels[side];
   return panel.entries.filter((entry) => panel.selected.has(entry.path));
@@ -666,10 +704,10 @@ function refreshSelection() {
 }
 async function createFolder(side) {
   const parent = panels[side].path;
-  const name = window.prompt('Name the new folder:');
-  if (!name) return;
+  const name = await askForName({ title: 'New folder', label: 'Folder name', confirmLabel: 'Create folder' });
+  if (name === null || !name.trim()) return;
   try {
-    await window.fileManager.createFolder({ parent, name });
+    await window.fileManager.createFolder({ parent, name: name.trim() });
     await navigate(side, parent);
   } catch (error) {
     toast(error.message);
@@ -898,10 +936,10 @@ async function deleteSelection(side) {
   if (!selected.length) { toast('Select one item to rename'); return; }
   if (selected.length > 1) { toast('Rename one item at a time'); return; }
   const item = selected[0];
-  const name = window.prompt('Rename item:', item.name);
-  if (name === null || name === item.name) return;
+  const name = await askForName({ title: 'Rename item', label: 'New name', value: item.name, confirmLabel: 'Rename' });
+  if (name === null || !name.trim() || name.trim() === item.name) return;
   try {
-    await window.fileManager.rename({ source: item.path, name });
+    await window.fileManager.rename({ source: item.path, name: name.trim() });
     await navigate(side, panels[side].path);
     toast('Item renamed');
   } catch (error) {
@@ -1064,8 +1102,17 @@ document.addEventListener('click', (event) => {
   if (action === 'new-folder') createFolder(activeSide);
   if (action === 'back') moveHistory(activeSide, -1);
   if (action === 'forward') moveHistory(activeSide, 1);
+  if (action === 'about') openAbout();
 });
 document.addEventListener('keydown', async (event) => {
+  if (!nameDialogBackdrop.hidden) {
+    if (event.key === 'Escape') finishNameDialog(null);
+    return;
+  }
+  if (!aboutBackdrop.hidden) {
+    if (event.key === 'Escape') closeAbout();
+    return;
+  }
   if (!conflictBackdrop.hidden) {
     if (event.key === 'Escape') finishConflictDecision({ choice: 'cancel' });
     return;
@@ -1098,6 +1145,18 @@ document.addEventListener('keydown', async (event) => {
 
 document.querySelector('#settings-button').addEventListener('click', openSettings);
 document.querySelector('#settings-close').addEventListener('click', closeSettings);
+nameDialogForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  finishNameDialog(nameDialogInput.value);
+});
+document.querySelector('#name-dialog-cancel').addEventListener('click', () => finishNameDialog(null));
+nameDialogBackdrop.addEventListener('click', (event) => {
+  if (event.target === nameDialogBackdrop) finishNameDialog(null);
+});
+document.querySelector('#about-close').addEventListener('click', closeAbout);
+aboutBackdrop.addEventListener('click', (event) => {
+  if (event.target === aboutBackdrop) closeAbout();
+});
 document.querySelectorAll('.settings-category').forEach((button) => button.addEventListener('click', () => {
   settingsCategory = button.dataset.category;
   renderSettingsCategory();

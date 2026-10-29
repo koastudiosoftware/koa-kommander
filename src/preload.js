@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('fileManager', {
+  versionInfo: () => ipcRenderer.invoke('app:version-info'),
   roots: () => ipcRenderer.invoke('fs:roots'),
   watchDirectory: (side, directory) => ipcRenderer.invoke('fs:watch-directory', { side, directory }),
   onDirectoryChanged: (callback) => {

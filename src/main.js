@@ -4,9 +4,23 @@ const fsSync = require('node:fs');
 const { watch } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 const directoryWatchers = new Map();
 const maxThumbnailPixels = 192;
 const thumbnailCachePrefix = 'koa-thumbnail-';
+
+function getGitCommitCount() {
+  try {
+    const count = execFileSync('git', ['rev-list', '--count', 'HEAD'], {
+      cwd: path.join(__dirname, '..'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+    return /^\d+$/.test(count) ? Number(count) : null;
+  } catch {
+    return null;
+  }
+}
 
 function expandEnvironmentVariables(value) {
   if (typeof value !== 'string') return value;
@@ -69,6 +83,16 @@ function saveWindowState(win) {
     console.error('Could not save window size:', error);
   }
 }
+
+ipcMain.handle('app:version-info', () => {
+  const packageVersion = app.getVersion();
+  const majorMinor = packageVersion.match(/^(\d+)\.(\d+)/);
+  const commitCount = getGitCommitCount();
+  const version = majorMinor && commitCount !== null
+    ? `${majorMinor[1]}.${majorMinor[2]}.${commitCount}`
+    : packageVersion;
+  return { version, commitCount };
+});
 
 function createWindow() {
   const windowState = readWindowState();

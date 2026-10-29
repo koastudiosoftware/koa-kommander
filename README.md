@@ -11,6 +11,10 @@ npm install
 npm start
 ```
 
+## Versioning
+
+The About dialog displays `Major.Minor.Commit`: the major and minor numbers come from `package.json`, and the final number is the current Git commit count. Adjust the major and minor numbers in `package.json` manually when needed. Uncommitted changes do not affect the commit number; builds without Git metadata fall back to the `package.json` version.
+
 ## First milestone
 
 - Two independent folder panels, initially opened to the user folder and its `Documents` folder when available.

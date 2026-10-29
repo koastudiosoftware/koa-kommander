@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('fileManager', {
   createShortcuts: (request) => ipcRenderer.invoke('fs:create-shortcuts', request),
   delete: (request) => ipcRenderer.invoke('fs:delete', request),
   open: (itemPath) => ipcRenderer.invoke('fs:open', itemPath),
-  showInExplorer: (itemPath) => ipcRenderer.invoke('fs:show-in-explorer', itemPath),
+  openInFileManager: (itemPath) => ipcRenderer.invoke('fs:open-in-file-manager', itemPath),
   createFolder: (request) => ipcRenderer.invoke('fs:create-folder', request),
   rename: (request) => ipcRenderer.invoke('fs:rename', request)
 });

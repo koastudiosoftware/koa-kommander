@@ -433,8 +433,10 @@ ipcMain.handle('fs:open', async (_event, itemPath) => {
   return { error };
 });
 
-ipcMain.handle('fs:show-in-explorer', async (_event, itemPath) => {
-  shell.showItemInFolder(resolvePath(itemPath));
+ipcMain.handle('fs:open-in-file-manager', async (_event, itemPath) => {
+  const resolved = resolvePath(itemPath);
+  const error = await shell.openPath(resolved);
+  return { error };
 });
 
 ipcMain.handle('fs:create-folder', async (_event, { parent, name }) => {

@@ -850,16 +850,18 @@ function bindPanel(side) {
   });
 }
 function showContextMenu(x, y, side, entry) {
-  const selected = getSelected(side);
+  const openAction = ['Open', 'Enter', () => window.fileManager.open(entry.path).then((result) => result.navigateTo && navigate(side, result.navigateTo))];
   const actions = [
-    ['Open', 'Enter', () => window.fileManager.open(entry.path).then((result) => result.navigateTo && navigate(side, result.navigateTo))],
+    openAction,
     ['Copy', 'Ctrl+C', () => copySelection(side, false)],
     ['Cut', 'Ctrl+X', () => copySelection(side, true)],
     ['Paste', 'Ctrl+V', () => pasteSelection()],
-    ['Delete', 'Delete', () => deleteSelection(side)],
-    ['Show in File Explorer', '', () => window.fileManager.showInExplorer(entry.path)]
+    ['Delete', 'Delete', () => deleteSelection(side)]
   ];
-  menu.innerHTML = actions.map(([label, shortcut], index) => `${index === 1 || index === 4 ? '<div class="menu-separator"></div>' : ''}<button role="menuitem" data-menu-index="${index}">${label}<kbd>${shortcut}</kbd></button>`).join('');
+  if (entry.isDirectory) {
+    actions.push(['Open in File Explorer', '', () => window.fileManager.openInFileManager(entry.path)]);
+  }
+  menu.innerHTML = actions.map(([label, shortcut], index) => `${index === 1 || index === 4 || (entry.isDirectory && index === actions.length - 1) ? '<div class="menu-separator"></div>' : ''}<button role="menuitem" data-menu-index="${index}">${label}<kbd>${shortcut}</kbd></button>`).join('');
   menu.hidden = false;
   menu.style.left = `${Math.min(x, innerWidth - 218)}px`;
   menu.style.top = `${Math.min(y, innerHeight - 220)}px`;

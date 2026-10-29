@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const { watch } = require('node:fs');
 const path = require('node:path');
 const directoryWatchers = new Map();
+const maxThumbnailPixels = 192;
 
 function closeDirectoryWatcher(key) {
   const record = directoryWatchers.get(key);
@@ -172,6 +173,38 @@ ipcMain.handle('fs:list', async (_event, directory) => {
   }));
   results.sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
   return { path: current, parent: path.dirname(current), entries: results };
+});
+
+ipcMain.handle('fs:thumbnail', async (_event, itemPath) => {
+  const fullPath = path.resolve(itemPath);
+  const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic']);
+  if (!imageExtensions.has(path.extname(fullPath).toLowerCase())) return null;
+  try {
+    const stats = await fs.stat(fullPath);
+    if (!stats.isFile()) return null;
+    let image = nativeImage.createFromPath(fullPath);
+    if (image.isEmpty()) {
+      try {
+        image = await nativeImage.createThumbnailFromPath(fullPath, { width: maxThumbnailPixels, height: maxThumbnailPixels });
+      } catch {
+        return null;
+      }
+    }
+    if (image.isEmpty()) return null;
+    const { width, height } = image.getSize();
+    if (!width || !height) return null;
+    const scale = Math.min(1, maxThumbnailPixels / Math.max(width, height));
+    if (scale < 1) {
+      image = image.resize({
+        width: Math.max(1, Math.round(width * scale)),
+        height: Math.max(1, Math.round(height * scale)),
+        quality: 'best'
+      });
+    }
+    return image.isEmpty() ? null : image.toDataURL();
+  } catch {
+    return null;
+  }
 });
 
 ipcMain.handle('fs:disk-space', async (_event, directory) => {

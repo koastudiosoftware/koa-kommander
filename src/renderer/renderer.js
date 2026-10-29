@@ -11,7 +11,7 @@ function restoreView(view) {
 }
 function restoreIconSize(size) {
   if (!Number.isFinite(size)) return 48;
-  return Math.max(32, Math.min(112, 32 + Math.round((size - 32) / 8) * 8));
+  return Math.max(32, Math.min(160, 32 + Math.round((size - 32) / 8) * 8));
 }
 const panels = {
   left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.left?.view), iconSize: restoreIconSize(savedLayout.left?.iconSize), columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
@@ -88,10 +88,14 @@ const icon = (name) => {
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.file}</svg>`;
 };
 
+const imageExtensions = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic']);
+function isImageEntry(entry) {
+  return !entry.isDirectory && imageExtensions.has(entry.name.split('.').pop().toLowerCase());
+}
 function kind(entry) {
   if (entry.isDirectory) return 'folder';
   const ext = entry.name.split('.').pop().toLowerCase();
-  if (['png','jpg','jpeg','gif','webp','bmp','svg','heic'].includes(ext)) return 'image';
+  if (imageExtensions.has(ext)) return 'image';
   if (ext === 'pdf') return 'pdf';
   if (['js','ts','json','html','css','py','md','yaml','yml','sh','bat'].includes(ext)) return 'code';
   if (['zip','7z','rar','tar','gz'].includes(ext)) return 'archive';
@@ -257,7 +261,7 @@ function panelChrome(side) {
   <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-spacer"></span>
     <div class="view-group" role="group" aria-label="Panel view"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details" aria-label="Details view" aria-pressed="${panel.view === 'details'}">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Thumbnails" aria-label="Thumbnail view" aria-pressed="${panel.view === 'icons'}">${gridIcon('icons')}</button></div>
     <button class="toolbar-button icon-only" data-action="match-other" aria-label="${side === 'left' ? 'Match right panel folder' : 'Match left panel folder'}" title="${side === 'left' ? 'Go to right panel folder' : 'Go to left panel folder'}">${actionIcon(side === 'left' ? 'left' : 'right')}</button>
-    ${panel.view === 'icons' ? `<label class="size-control" title="Thumbnail size"><span data-size-value>${panel.iconSize}</span><input type="range" min="32" max="112" step="8" value="${panel.iconSize}" data-action="icon-size" aria-label="Thumbnail size"></label>` : ''}
+    ${panel.view === 'icons' ? `<label class="size-control" title="Thumbnail size"><span data-size-value>${panel.iconSize}</span><input type="range" min="32" max="160" step="8" value="${panel.iconSize}" data-action="icon-size" aria-label="Thumbnail size"></label>` : ''}
   </div>`;
 }
 function gridIcon(type) {
@@ -306,28 +310,35 @@ function renderEntries(side) {
     const emptyState = visibleEntries.length ? '' : `<div class="empty-state">${icon('folder')}<strong>${panel.entries.length ? 'No visible items' : 'This folder is empty'}</strong><span>${panel.entries.length ? 'Hidden items are not shown' : 'Drop files here to add them'}</span></div>`;
     return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr>${heading('name', 'Name', 0)}${heading('size', 'Size', 1)}${heading('modified', 'Date modified')}</tr></thead><tbody>${rows}</tbody></table>${emptyState}</div>`;
   }
-  const tileSize = Math.round(panel.iconSize * 1.9);
+  const tileSize = panel.iconSize + 48;
   const visibleEntries = panel.entries.filter((entry) => preferences.showHidden || !entry.name.startsWith('.'));
   const orderedEntries = [...visibleEntries].sort((a, b) => {
     if (preferences.groupFolders && a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   });
-  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)} style="height:${panel.iconSize + 48}px"><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
+  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)} style="width:${tileSize}px;height:${tileSize}px"><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
   return `<div class="file-area"><div class="icon-grid" style="--tile-width:${tileSize}px">${tiles}</div>${visibleEntries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
 }
 function renderPanel(side) {
   const panel = panels[side];
   panel.element.classList.toggle('is-active', activeSide === side);
   panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom">${panelStatus(panel)}</div>`;
-  if (panel.view === 'icons') applyThumbnailSize(panel);
+  if (panel.view === 'icons') {
+    applyThumbnailSize(panel);
+    loadThumbnailImages(side);
+  }
   bindPanel(side);
   updateSummary();
 }
 function applyThumbnailSize(panel) {
   const grid = panel.element.querySelector('.icon-grid');
   if (!grid) return;
-  grid.style.setProperty('--tile-width', `${Math.round(panel.iconSize * 1.9)}px`);
-  grid.querySelectorAll('.icon-tile').forEach((tile) => { tile.style.height = `${panel.iconSize + 48}px`; });
+  const tileSize = panel.iconSize + 48;
+  grid.style.setProperty('--tile-width', `${tileSize}px`);
+  grid.querySelectorAll('.icon-tile').forEach((tile) => {
+    tile.style.width = `${tileSize}px`;
+    tile.style.height = `${tileSize}px`;
+  });
   grid.querySelectorAll('.tile-visual').forEach((visual) => {
     visual.style.width = `${panel.iconSize}px`;
     visual.style.height = `${panel.iconSize}px`;
@@ -335,6 +346,32 @@ function applyThumbnailSize(panel) {
     svg?.style.setProperty('width', `${panel.iconSize}px`, 'important');
     svg?.style.setProperty('height', `${panel.iconSize}px`, 'important');
   });
+}
+async function loadThumbnailImages(side) {
+  const panel = panels[side];
+  const tiles = [...panel.element.querySelectorAll('.icon-tile')].filter((tile) => {
+    const entry = panel.entries[Number(tile.dataset.entry)];
+    return entry && isImageEntry(entry);
+  });
+  let nextIndex = 0;
+  const loadNext = async () => {
+    while (nextIndex < tiles.length) {
+      const tile = tiles[nextIndex++];
+      const entry = panel.entries[Number(tile.dataset.entry)];
+      if (!entry) continue;
+      try {
+        const dataUrl = await window.fileManager.thumbnail(entry.path);
+        const visual = tile.querySelector('.tile-visual');
+        if (!dataUrl || !visual?.isConnected || !tile.isConnected) continue;
+        const thumbnail = document.createElement('img');
+        thumbnail.className = 'thumbnail-image';
+        thumbnail.alt = '';
+        thumbnail.src = dataUrl;
+        visual.replaceChildren(thumbnail);
+      } catch { /* Keep the file type icon when a preview cannot be created. */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, tiles.length) }, loadNext));
 }
 function updateSummary() {
   updateHistoryButtons();

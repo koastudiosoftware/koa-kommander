@@ -3,8 +3,16 @@ const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const { watch } = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const directoryWatchers = new Map();
 const maxThumbnailPixels = 192;
+const thumbnailCachePrefix = 'koa-thumbnail-';
+
+function thumbnailCacheDirectory(directory) {
+  return typeof directory === 'string' && directory.trim()
+    ? path.resolve(directory)
+    : path.join(app.getPath('userData'), 'thumbnail-cache');
+}
 
 function closeDirectoryWatcher(key) {
   const record = directoryWatchers.get(key);
@@ -120,10 +128,11 @@ ipcMain.handle('fs:roots', async () => {
   return roots;
 });
 
-ipcMain.handle('dialog:choose-directory', async (event) => {
+ipcMain.handle('dialog:choose-directory', async (event, defaultPath) => {
   const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
     title: 'Choose a directory',
-    properties: ['openDirectory']
+    properties: ['openDirectory'],
+    ...(typeof defaultPath === 'string' && defaultPath && fsSync.existsSync(defaultPath) ? { defaultPath } : {})
   });
   return result.canceled ? null : result.filePaths[0] || null;
 });
@@ -175,13 +184,38 @@ ipcMain.handle('fs:list', async (_event, directory) => {
   return { path: current, parent: path.dirname(current), entries: results };
 });
 
-ipcMain.handle('fs:thumbnail', async (_event, itemPath) => {
+ipcMain.handle('settings:thumbnail-cache-default-path', () => thumbnailCacheDirectory());
+
+ipcMain.handle('fs:clear-thumbnail-cache', async (_event, directory) => {
+  const cacheDirectory = thumbnailCacheDirectory(directory);
+  let entries;
+  try { entries = await fs.readdir(cacheDirectory, { withFileTypes: true }); }
+  catch (error) {
+    if (error.code === 'ENOENT') return 0;
+    throw error;
+  }
+  const cachedFiles = entries.filter((entry) => entry.isFile() && /^koa-thumbnail-[a-f0-9]{64}\.png$/i.test(entry.name));
+  const results = await Promise.allSettled(cachedFiles.map((entry) => fs.unlink(path.join(cacheDirectory, entry.name))));
+  return results.filter((result) => result.status === 'fulfilled').length;
+});
+
+ipcMain.handle('fs:thumbnail', async (_event, { itemPath, cachePath }) => {
   const fullPath = path.resolve(itemPath);
   const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic']);
   if (!imageExtensions.has(path.extname(fullPath).toLowerCase())) return null;
   try {
     const stats = await fs.stat(fullPath);
     if (!stats.isFile()) return null;
+    const cacheDirectory = thumbnailCacheDirectory(cachePath);
+    const cacheKey = crypto.createHash('sha256')
+      .update(`${fullPath}\0${stats.size}\0${stats.mtimeMs}\0${maxThumbnailPixels}`)
+      .digest('hex');
+    const cacheFile = path.join(cacheDirectory, `${thumbnailCachePrefix}${cacheKey}.png`);
+    try {
+      const cachedPng = await fs.readFile(cacheFile);
+      if (!nativeImage.createFromBuffer(cachedPng).isEmpty()) return `data:image/png;base64,${cachedPng.toString('base64')}`;
+      await fs.unlink(cacheFile).catch(() => {});
+    } catch { /* Generate a fresh thumbnail when the cache is missing or unreadable. */ }
     let image = nativeImage.createFromPath(fullPath);
     if (image.isEmpty()) {
       try {
@@ -201,7 +235,13 @@ ipcMain.handle('fs:thumbnail', async (_event, itemPath) => {
         quality: 'best'
       });
     }
-    return image.isEmpty() ? null : image.toDataURL();
+    if (image.isEmpty()) return null;
+    const png = image.toPNG();
+    try {
+      await fs.mkdir(cacheDirectory, { recursive: true });
+      await fs.writeFile(cacheFile, png);
+    } catch { /* Previews still work when the cache location is unavailable. */ }
+    return `data:image/png;base64,${png.toString('base64')}`;
   } catch {
     return null;
   }

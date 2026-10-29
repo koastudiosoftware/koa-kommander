@@ -21,12 +21,13 @@ let layoutInitialized = false;
 let activeSide = 'left';
 let clipboard = null;
 let toastTimer;
-const defaultPreferences = { showHidden: false, groupFolders: true, confirmDelete: true, dateFormat: 'us', timeFormat: '12h', theme: 'system', directorySets: [] };
+const defaultPreferences = { showHidden: false, groupFolders: true, confirmDelete: true, dateFormat: 'us', timeFormat: '12h', theme: 'system', directorySets: [], thumbnailCachePath: '' };
 let preferences;
 let savedPreferences = {};
 try { savedPreferences = JSON.parse(localStorage.getItem('koa-settings') || '{}'); }
 catch { savedPreferences = {}; }
 preferences = { ...defaultPreferences, ...savedPreferences };
+if (typeof preferences.thumbnailCachePath !== 'string') preferences.thumbnailCachePath = '';
 if (!Array.isArray(savedPreferences.directorySets)) preferences.directorySets = (savedPreferences.bookmarks || []).map((directory) => ({ type: 'single', path: directory, openIn: 'active', name: '' }));
 delete preferences.bookmarks;
 const status = document.querySelector('#status-message');
@@ -42,6 +43,7 @@ const conflictRenameInput = document.querySelector('#conflict-rename-name');
 const settingsBackdrop = document.querySelector('#settings-backdrop');
 const settingsContent = document.querySelector('#settings-content');
 let settingsCategory = 'files';
+let defaultThumbnailCachePath = '';
 let directorySetDraft = null;
 let resolveConflictDecision = null;
 let rightDragCandidate = null;
@@ -360,7 +362,7 @@ async function loadThumbnailImages(side) {
       const entry = panel.entries[Number(tile.dataset.entry)];
       if (!entry) continue;
       try {
-        const dataUrl = await window.fileManager.thumbnail(entry.path);
+        const dataUrl = await window.fileManager.thumbnail(entry.path, preferences.thumbnailCachePath);
         const visual = tile.querySelector('.tile-visual');
         if (!dataUrl || !visual?.isConnected || !tile.isConnected) continue;
         const thumbnail = document.createElement('img');
@@ -527,6 +529,16 @@ function renderSettingsCategory() {
     settingsContent.innerHTML = `<h2>Date &amp; Time</h2><p class="settings-description">Choose how modification dates and times appear in the panels.</p><label class="setting-field"><span>Date format</span><select data-preference="dateFormat"><option value="us" ${preferences.dateFormat === 'us' ? 'selected' : ''}>MM/DD/YYYY (American)</option><option value="eu" ${preferences.dateFormat === 'eu' ? 'selected' : ''}>DD/MM/YYYY (European)</option><option value="iso-dash" ${preferences.dateFormat === 'iso-dash' ? 'selected' : ''}>YYYY-MM-DD</option><option value="iso-slash" ${preferences.dateFormat === 'iso-slash' ? 'selected' : ''}>YYYY/MM/DD</option></select></label><label class="setting-field date-time-field"><span>Time format</span><select data-preference="timeFormat"><option value="12h" ${preferences.timeFormat === '12h' ? 'selected' : ''}>12-hour with AM/PM</option><option value="24h" ${preferences.timeFormat === '24h' ? 'selected' : ''}>24-hour, no leading zero</option><option value="24h-padded" ${preferences.timeFormat === '24h-padded' ? 'selected' : ''}>24-hour, leading zero</option></select></label>`;
   } else if (settingsCategory === 'theme') {
     settingsContent.innerHTML = `<h2>Theme</h2><p class="settings-description">Choose the appearance used by the file manager.</p><label class="setting-field"><span>Color theme</span><select data-preference="theme"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>System</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>`;
+  } else if (settingsCategory === 'thumbnails') {
+    settingsContent.innerHTML = `<h2>Thumbnails</h2><p class="settings-description">Choose where generated image previews are stored, or clear the saved previews.</p><div class="thumbnail-cache-field"><label for="thumbnail-cache-path">Cache folder</label><div class="directory-path-input"><input id="thumbnail-cache-path" data-preference="thumbnailCachePath" value="${escapeHtml(preferences.thumbnailCachePath)}" placeholder="Default location"><button data-cache-browse>Browse…</button></div><p class="settings-hint">Leave blank to use the default cache folder: <span id="thumbnail-cache-default-path">Loading…</span></p></div><div class="thumbnail-cache-actions"><button class="settings-secondary" data-cache-default>Use default folder</button><button class="settings-primary" data-clear-thumbnail-cache>Clear thumbnail cache</button></div><p class="settings-hint" id="thumbnail-cache-status" role="status"></p>`;
+    window.fileManager.thumbnailCacheDefaultPath().then((directory) => {
+      defaultThumbnailCachePath = directory;
+      const label = settingsContent.querySelector('#thumbnail-cache-default-path');
+      if (label && settingsCategory === 'thumbnails') label.textContent = directory;
+    }).catch(() => {
+      const label = settingsContent.querySelector('#thumbnail-cache-default-path');
+      if (label && settingsCategory === 'thumbnails') label.textContent = 'Unavailable';
+    });
   } else if (settingsCategory === 'directory-sets') renderDirectorySets();
 }
 function openSettings() {
@@ -1014,6 +1026,42 @@ settingsContent.addEventListener('input', (event) => {
   }
 });
 settingsContent.addEventListener('click', async (event) => {
+  if (event.target.closest('[data-cache-browse]')) {
+    const input = settingsContent.querySelector('#thumbnail-cache-path');
+    try {
+      const directory = await window.fileManager.chooseDirectory(input.value.trim() || defaultThumbnailCachePath);
+      if (directory) {
+        preferences.thumbnailCachePath = directory;
+        savePreferences();
+        renderSettingsCategory();
+      }
+    } catch (error) { toast(`Could not choose cache folder: ${error.message}`); }
+    return;
+  }
+  if (event.target.closest('[data-cache-default]')) {
+    preferences.thumbnailCachePath = '';
+    savePreferences();
+    renderSettingsCategory();
+    return;
+  }
+  if (event.target.closest('[data-clear-thumbnail-cache]')) {
+    const button = event.target.closest('[data-clear-thumbnail-cache]');
+    const input = settingsContent.querySelector('#thumbnail-cache-path');
+    const status = settingsContent.querySelector('#thumbnail-cache-status');
+    preferences.thumbnailCachePath = input.value.trim();
+    savePreferences();
+    button.disabled = true;
+    status.textContent = 'Clearing cached thumbnails…';
+    try {
+      const count = await window.fileManager.clearThumbnailCache(preferences.thumbnailCachePath);
+      status.textContent = `Cleared ${count} cached thumbnail${count === 1 ? '' : 's'}.`;
+    } catch (error) {
+      status.textContent = `Could not clear the cache: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+    return;
+  }
   if (event.target.closest('[data-new-set]')) {
     directorySetDraft = { index: null, type: 'single', path: panels[activeSide].path || '', openIn: 'active', name: '' };
     renderDirectorySets();

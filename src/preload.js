@@ -8,9 +8,11 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.on('fs:directory-changed', listener);
     return () => ipcRenderer.removeListener('fs:directory-changed', listener);
   },
-  chooseDirectory: () => ipcRenderer.invoke('dialog:choose-directory'),
+  chooseDirectory: (defaultPath) => ipcRenderer.invoke('dialog:choose-directory', defaultPath),
   list: (directory) => ipcRenderer.invoke('fs:list', directory),
-  thumbnail: (itemPath) => ipcRenderer.invoke('fs:thumbnail', itemPath),
+  thumbnail: (itemPath, cachePath) => ipcRenderer.invoke('fs:thumbnail', { itemPath, cachePath }),
+  thumbnailCacheDefaultPath: () => ipcRenderer.invoke('settings:thumbnail-cache-default-path'),
+  clearThumbnailCache: (cachePath) => ipcRenderer.invoke('fs:clear-thumbnail-cache', cachePath),
   diskSpace: (directory) => ipcRenderer.invoke('fs:disk-space', directory),
   transfer: (request) => ipcRenderer.invoke('fs:transfer', request),
   createShortcuts: (request) => ipcRenderer.invoke('fs:create-shortcuts', request),

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
+const realFs = require('original-fs').promises;
 const fsSync = require('node:fs');
 const { watch } = require('node:fs');
 const path = require('node:path');
@@ -7,6 +8,7 @@ const crypto = require('node:crypto');
 const { execFile, execFileSync } = require('node:child_process');
 const directoryWatchers = new Map();
 const activeSearches = new Map();
+const activeFolderSizeScans = new Map();
 let windowsDriveMetadataCache = { loadedAt: 0, drives: new Map() };
 let windowsDriveMetadataPending = null;
 const maxThumbnailPixels = 192;
@@ -53,6 +55,57 @@ function runPowerShell(script, env = {}) {
       else resolve(stdout.trim());
     });
   });
+}
+
+function folderSizeScanKey(webContentsId, requestId) {
+  return `${webContentsId}:${requestId}`;
+}
+
+async function scanFolderSize(rootPath, scan, sendProgress) {
+  const pendingDirectories = [rootPath];
+  let totalBytes = 0;
+  let fileCount = 0;
+  let folderCount = 0;
+  let processedSinceProgress = 0;
+  let lastProgressAt = Date.now();
+  const progress = () => sendProgress({ totalBytes, fileCount, folderCount });
+  progress();
+
+  while (pendingDirectories.length) {
+    if (scan.cancelled) return { cancelled: true };
+    const directory = pendingDirectories.pop();
+    let handle;
+    try {
+      handle = await realFs.opendir(directory);
+      for await (const entry of handle) {
+        if (scan.cancelled) return { cancelled: true };
+        if (entry.isSymbolicLink()) continue;
+        const entryPath = path.join(directory, entry.name);
+        let stats;
+        try { stats = await realFs.lstat(entryPath); }
+        catch (error) { throw new Error(`Cannot inspect "${entryPath}": ${error.message}`); }
+        if (stats.isSymbolicLink()) continue;
+        if (stats.isDirectory()) {
+          folderCount += 1;
+          pendingDirectories.push(entryPath);
+        } else if (stats.isFile()) {
+          fileCount += 1;
+          totalBytes += stats.size;
+        }
+        processedSinceProgress += 1;
+        if (processedSinceProgress >= 64 || Date.now() - lastProgressAt >= 150) {
+          progress();
+          processedSinceProgress = 0;
+          lastProgressAt = Date.now();
+        }
+      }
+    } catch (error) {
+      if (scan.cancelled) return { cancelled: true };
+      throw new Error(`Cannot read "${directory}": ${error.message}`);
+    }
+  }
+  progress();
+  return { cancelled: false, totalBytes, fileCount, folderCount };
 }
 
 async function getWindowsDriveMetadata(forceRefresh = false) {
@@ -587,6 +640,52 @@ ipcMain.handle('fs:open', async (_event, itemPath) => {
   if (stats.isDirectory()) return { navigateTo: resolved };
   const error = await shell.openPath(resolved);
   return { error };
+});
+
+ipcMain.handle('fs:properties', async (_event, itemPath) => {
+  const resolved = resolvePath(itemPath);
+  const stats = await realFs.stat(resolved);
+  const isDirectory = stats.isDirectory();
+  const extension = isDirectory ? '' : path.extname(resolved);
+  return {
+    name: path.basename(resolved),
+    path: resolved,
+    location: path.dirname(resolved),
+    isDirectory,
+    type: isDirectory ? 'File folder' : `${extension ? `${extension.slice(1).toUpperCase()} ` : ''}File`,
+    size: stats.size,
+    created: stats.birthtime.toISOString(),
+    modified: stats.mtime.toISOString(),
+    accessed: stats.atime.toISOString()
+  };
+});
+
+ipcMain.handle('fs:folder-size', async (event, { requestId, itemPath }) => {
+  if (typeof requestId !== 'string' || !requestId || requestId.length > 128) throw new Error('Invalid folder size request.');
+  const resolved = resolvePath(itemPath);
+  const key = folderSizeScanKey(event.sender.id, requestId);
+  if (activeFolderSizeScans.has(key)) throw new Error('A size calculation is already running for this request.');
+  const scan = { cancelled: false };
+  const onDestroyed = () => { scan.cancelled = true; };
+  activeFolderSizeScans.set(key, scan);
+  event.sender.once('destroyed', onDestroyed);
+  try {
+    const rootStats = await realFs.lstat(resolved);
+    if (rootStats.isSymbolicLink()) throw new Error('Folder size is not calculated for links.');
+    if (!rootStats.isDirectory()) throw new Error('The selected item is not a folder.');
+    return await scanFolderSize(resolved, scan, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send('fs:folder-size-progress', { requestId, ...progress });
+    });
+  } finally {
+    event.sender.removeListener('destroyed', onDestroyed);
+    activeFolderSizeScans.delete(key);
+  }
+});
+
+ipcMain.on('fs:folder-size-cancel', (event, requestId) => {
+  if (typeof requestId !== 'string') return;
+  const scan = activeFolderSizeScans.get(folderSizeScanKey(event.sender.id, requestId));
+  if (scan) scan.cancelled = true;
 });
 
 ipcMain.handle('fs:open-in-file-manager', async (_event, itemPath) => {

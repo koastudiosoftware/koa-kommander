@@ -53,11 +53,13 @@ const nameDialogBackdrop = document.querySelector('#name-dialog-backdrop');
 const nameDialogForm = document.querySelector('#name-dialog-form');
 const nameDialogInput = document.querySelector('#name-dialog-input');
 const aboutBackdrop = document.querySelector('#about-backdrop');
+const propertiesBackdrop = document.querySelector('#properties-backdrop');
 let settingsCategory = 'files';
 let defaultThumbnailCachePath = '';
 let directorySetDraft = null;
 let resolveConflictDecision = null;
 let resolveNameDialog = null;
+let activeFolderSizeRequest = null;
 let rightDragCandidate = null;
 let pendingRightDrop = null;
 let suppressRightContextUntil = 0;
@@ -164,6 +166,114 @@ function toast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('visible'), 2400);
 }
+function showProperties(properties) {
+  cancelFolderSizeScan();
+  const rows = [
+    ['Type', properties.type],
+    ['Location', properties.location],
+    ['Size', properties.isDirectory ? 'Calculating…' : formatSize(properties.size, false)],
+    ...(properties.isDirectory ? [['Files', 'Counting…'], ['Folders', 'Counting…']] : []),
+    ['Created', formatDate(properties.created)],
+    ['Modified', formatDate(properties.modified)],
+    ['Accessed', formatDate(properties.accessed)]
+  ];
+  document.querySelector('#properties-title').textContent = `${properties.name} Properties`;
+  const rowIds = { Size: 'properties-size', Files: 'properties-file-count', Folders: 'properties-folder-count' };
+  document.querySelector('#properties-content').innerHTML = `<div class="properties-name">${escapeHtml(properties.name)}</div><dl class="properties-list">${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd ${rowIds[label] ? `id="${rowIds[label]}"` : ''} title="${escapeHtml(value)}">${escapeHtml(value)}</dd></div>`).join('')}</dl><div class="properties-scan-footer" ${properties.isDirectory ? '' : 'hidden'}><span id="properties-scan-status">Preparing folder scan…</span><button class="settings-secondary" id="properties-cancel-scan" type="button">Cancel calculation</button></div>`;
+  propertiesBackdrop.hidden = false;
+  document.querySelector('#properties-close').focus();
+  if (properties.isDirectory) startFolderSizeScan(properties.path);
+}
+function cancelFolderSizeScan() {
+  if (!activeFolderSizeRequest) return;
+  window.fileManager.cancelFolderSize(activeFolderSizeRequest);
+  activeFolderSizeRequest = null;
+}
+function closeProperties() {
+  cancelFolderSizeScan();
+  propertiesBackdrop.hidden = true;
+}
+async function startFolderSizeScan(itemPath) {
+  const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  activeFolderSizeRequest = requestId;
+  const size = document.querySelector('#properties-size');
+  const scanStatus = document.querySelector('#properties-scan-status');
+  const cancelButton = document.querySelector('#properties-cancel-scan');
+  const setStatus = (text) => { if (scanStatus) scanStatus.textContent = text; };
+  try {
+    const result = await window.fileManager.folderSize({ requestId, itemPath });
+    if (activeFolderSizeRequest !== requestId) return;
+    if (result.cancelled) {
+      size.textContent = 'Cancelled';
+      document.querySelector('#properties-file-count').textContent = 'Cancelled';
+      document.querySelector('#properties-folder-count').textContent = 'Cancelled';
+      setStatus('Folder size calculation cancelled.');
+    } else {
+      size.textContent = formatSize(result.totalBytes, false);
+      document.querySelector('#properties-file-count').textContent = String(result.fileCount);
+      document.querySelector('#properties-folder-count').textContent = String(result.folderCount);
+      setStatus(`Scanned ${result.fileCount} files and ${result.folderCount} folders.`);
+    }
+    cancelButton.hidden = true;
+  } catch (error) {
+    if (activeFolderSizeRequest !== requestId) return;
+    size.textContent = 'Unavailable';
+    document.querySelector('#properties-file-count').textContent = 'Unavailable';
+    document.querySelector('#properties-folder-count').textContent = 'Unavailable';
+    setStatus(`Could not calculate folder size: ${error.message}`);
+    cancelButton.hidden = true;
+  } finally {
+    if (activeFolderSizeRequest === requestId) activeFolderSizeRequest = null;
+  }
+}
+window.fileManager.onFolderSizeProgress((progress) => {
+  if (progress.requestId !== activeFolderSizeRequest || propertiesBackdrop.hidden) return;
+  document.querySelector('#properties-size').textContent = `${formatSize(progress.totalBytes, false)} so far`;
+  document.querySelector('#properties-file-count').textContent = String(progress.fileCount);
+  document.querySelector('#properties-folder-count').textContent = String(progress.folderCount);
+  document.querySelector('#properties-scan-status').textContent = 'Calculating folder size and contents…';
+});
+function makeDialogDraggable(dialogSelector, handleSelector) {
+  const dialog = document.querySelector(dialogSelector);
+  const handle = dialog?.querySelector(handleSelector);
+  if (!dialog || !handle) return;
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.target.closest('button,input,select,textarea,a')) return;
+    event.preventDefault();
+    const rect = dialog.getBoundingClientRect();
+    dialog.style.position = 'fixed';
+    dialog.style.left = `${rect.left}px`;
+    dialog.style.top = `${rect.top}px`;
+    dialog.style.margin = '0';
+    dialog.style.transform = 'none';
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startLeft = rect.left;
+    const startTop = rect.top;
+    handle.setPointerCapture(event.pointerId);
+    const move = (moveEvent) => {
+      const maxLeft = Math.max(8, window.innerWidth - dialog.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - dialog.offsetHeight - 8);
+      dialog.style.left = `${Math.min(maxLeft, Math.max(8, startLeft + moveEvent.clientX - startX))}px`;
+      dialog.style.top = `${Math.min(maxTop, Math.max(8, startTop + moveEvent.clientY - startY))}px`;
+    };
+    const finish = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', finish);
+      handle.removeEventListener('pointercancel', finish);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', finish, { once: true });
+    handle.addEventListener('pointercancel', finish, { once: true });
+  });
+}
+[
+  ['.settings-dialog', '.settings-header'],
+  ['.conflict-dialog', '.conflict-header'],
+  ['.name-dialog', 'h2'],
+  ['.about-dialog', 'h2'],
+  ['.properties-dialog', '.properties-header']
+].forEach(([dialogSelector, handleSelector]) => makeDialogDraggable(dialogSelector, handleSelector));
 
 function suggestedCopyName(name) {
   const extensionAt = name.lastIndexOf('.');
@@ -1101,7 +1211,16 @@ function showContextMenu(x, y, side, entry) {
   if (entry.isDirectory) {
     actions.push(['Open in File Explorer', '', () => window.fileManager.openInFileManager(entry.path)]);
   }
-  menu.innerHTML = actions.map(([label, shortcut], index) => `${index === 1 || index === 4 || (entry.isDirectory && index === actions.length - 1) ? '<div class="menu-separator"></div>' : ''}<button role="menuitem" data-menu-index="${index}">${label}<kbd>${shortcut}</kbd></button>`).join('');
+  actions.push(['Properties', '', async () => {
+    try {
+      showProperties(await window.fileManager.properties(entry.path));
+    } catch (error) {
+      toast(`Could not open Properties: ${error.message}`);
+    }
+  }]);
+  const separators = new Set([1, 4, actions.length - 1]);
+  if (entry.isDirectory) separators.add(actions.length - 2);
+  menu.innerHTML = actions.map(([label, shortcut], index) => `${separators.has(index) ? '<div class="menu-separator"></div>' : ''}<button role="menuitem" data-menu-index="${index}">${label}<kbd>${shortcut}</kbd></button>`).join('');
   menu.hidden = false;
   menu.style.left = `${Math.min(x, innerWidth - 218)}px`;
   menu.style.top = `${Math.min(y, innerHeight - 220)}px`;
@@ -1355,6 +1474,10 @@ document.addEventListener('keydown', async (event) => {
     if (event.key === 'Escape') closeAbout();
     return;
   }
+  if (!propertiesBackdrop.hidden) {
+    if (event.key === 'Escape') closeProperties();
+    return;
+  }
   if (!conflictBackdrop.hidden) {
     if (event.key === 'Escape') finishConflictDecision({ choice: 'cancel' });
     return;
@@ -1398,6 +1521,18 @@ nameDialogBackdrop.addEventListener('click', (event) => {
 document.querySelector('#about-close').addEventListener('click', closeAbout);
 aboutBackdrop.addEventListener('click', (event) => {
   if (event.target === aboutBackdrop) closeAbout();
+});
+document.querySelector('#properties-close').addEventListener('click', closeProperties);
+propertiesBackdrop.addEventListener('click', (event) => {
+  if (event.target.closest('#properties-cancel-scan')) {
+    if (activeFolderSizeRequest) {
+      window.fileManager.cancelFolderSize(activeFolderSizeRequest);
+      event.target.disabled = true;
+      document.querySelector('#properties-scan-status').textContent = 'Cancelling folder size calculation…';
+    }
+    return;
+  }
+  if (event.target === propertiesBackdrop) closeProperties();
 });
 document.querySelectorAll('.settings-category').forEach((button) => button.addEventListener('click', () => {
   settingsCategory = button.dataset.category;

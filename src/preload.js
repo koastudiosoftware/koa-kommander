@@ -32,6 +32,14 @@ contextBridge.exposeInMainWorld('fileManager', {
   createShortcuts: (request) => ipcRenderer.invoke('fs:create-shortcuts', request),
   delete: (request) => ipcRenderer.invoke('fs:delete', request),
   open: (itemPath) => ipcRenderer.invoke('fs:open', itemPath),
+  properties: (itemPath) => ipcRenderer.invoke('fs:properties', itemPath),
+  folderSize: (request) => ipcRenderer.invoke('fs:folder-size', request),
+  cancelFolderSize: (requestId) => ipcRenderer.send('fs:folder-size-cancel', requestId),
+  onFolderSizeProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on('fs:folder-size-progress', listener);
+    return () => ipcRenderer.removeListener('fs:folder-size-progress', listener);
+  },
   openInFileManager: (itemPath) => ipcRenderer.invoke('fs:open-in-file-manager', itemPath),
   createFolder: (request) => ipcRenderer.invoke('fs:create-folder', request),
   rename: (request) => ipcRenderer.invoke('fs:rename', request)

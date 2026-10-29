@@ -34,6 +34,8 @@ const status = document.querySelector('#status-message');
 const summary = document.querySelector('#drive-space-summary');
 const menu = document.querySelector('#context-menu');
 const historyMenu = document.querySelector('#history-menu');
+const directorySetMenu = document.querySelector('#directory-set-menu');
+let directorySetMenuSide = null;
 const dropActionMenu = document.querySelector('#drop-action-menu');
 const conflictBackdrop = document.querySelector('#conflict-backdrop');
 const conflictItems = document.querySelector('#conflict-items');
@@ -262,6 +264,7 @@ function panelChrome(side) {
   </div>
   <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-spacer"></span>
     <div class="view-group" role="group" aria-label="Panel view"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details" aria-label="Details view" aria-pressed="${panel.view === 'details'}">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Thumbnails" aria-label="Thumbnail view" aria-pressed="${panel.view === 'icons'}">${gridIcon('icons')}</button></div>
+    <button class="toolbar-button directory-set-trigger" data-action="directory-sets" aria-label="Open a saved directory set" aria-expanded="false" title="Directory sets">${actionIcon('sets')}<span>Sets</span></button>
     <button class="toolbar-button icon-only" data-action="match-other" aria-label="${side === 'left' ? 'Match right panel folder' : 'Match left panel folder'}" title="${side === 'left' ? 'Go to right panel folder' : 'Go to left panel folder'}">${actionIcon(side === 'left' ? 'left' : 'right')}</button>
     ${panel.view === 'icons' ? `<label class="size-control" title="Thumbnail size"><span data-size-value>${panel.iconSize}</span><input type="range" min="32" max="160" step="8" value="${panel.iconSize}" data-action="icon-size" aria-label="Thumbnail size"></label>` : ''}
   </div>`;
@@ -316,6 +319,7 @@ function gridIcon(type) {
 
 function actionIcon(name) {
   const icons = {
+    sets: '<path d="M3 6.5h6l2 2h10v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M7 12h10M7 15h7"/>',
     'new-folder': '<path d="M3 6.5h7l2 2h9v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 11v6M9 14h6"/>',    up: '<path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/>',
     refresh: '<path d="M4.5 9A8 8 0 0 1 18 5.5L20 9"/><path d="M20 9l-4.5-.3M20 9l-.4-4.5"/><path d="M19.5 15A8 8 0 0 1 6 18.5L4 15"/><path d="M4 15l4.5.3M4 15l.4 4.5"/>',
     left: '<path d="M12 19l-7-7 7-7"/>',
@@ -548,6 +552,55 @@ function directorySetLabel(set) {
 function bookmarkLabel(directory = '') {
   return directory.split(/[\\/]/).filter(Boolean).at(-1) || directory;
 }
+function directorySetDetails(set) {
+  if (set.type === 'pair') return [['Left', set.leftPath], ['Right', set.rightPath]];
+  const target = set.openIn === 'left' ? 'Left' : set.openIn === 'right' ? 'Right' : 'Active';
+  return [[target, set.path]];
+}
+async function openDirectorySet(set, activePanel = activeSide) {
+  if (set.type === 'pair') return Promise.all([navigate('left', set.leftPath), navigate('right', set.rightPath)]);
+  const target = set.openIn === 'left' || set.openIn === 'right' ? set.openIn : activePanel;
+  return navigate(target, set.path);
+}
+function closeDirectorySetMenu() {
+  directorySetMenu.hidden = true;
+  if (directorySetMenuSide) {
+    panels[directorySetMenuSide].element.querySelector('[data-action="directory-sets"]')?.setAttribute('aria-expanded', 'false');
+  }
+  directorySetMenuSide = null;
+}
+function showDirectorySetMenu(side, button) {
+  if (!directorySetMenu.hidden && directorySetMenuSide === side) {
+    closeDirectorySetMenu();
+    return;
+  }
+  closeDirectorySetMenu();
+  directorySetMenuSide = side;
+  activeSide = side;
+  panels.left.element.classList.toggle('is-active', side === 'left');
+  panels.right.element.classList.toggle('is-active', side === 'right');
+  button.setAttribute('aria-expanded', 'true');
+  directorySetMenu.innerHTML = preferences.directorySets.length
+    ? preferences.directorySets.map((set, index) => `<button role="menuitem" data-menu-directory-set="${index}"><strong>${escapeHtml(directorySetLabel(set))}</strong><span class="directory-set-locations">${directorySetDetails(set).map(([label, directory]) => `<span class="directory-set-location-label">${escapeHtml(label)}</span><span class="directory-set-location-path">${escapeHtml(directory || '')}</span>`).join('')}</span></button>`).join('')
+    : '<div class="directory-set-menu-empty">No directory sets saved.</div>';
+  directorySetMenu.hidden = false;
+  const bounds = button.getBoundingClientRect();
+  const menuWidth = directorySetMenu.offsetWidth;
+  const menuHeight = directorySetMenu.offsetHeight;
+  const left = Math.max(8, Math.min(bounds.right - menuWidth, innerWidth - menuWidth - 8));
+  const below = bounds.bottom + 6;
+  const top = below + menuHeight <= innerHeight - 8 ? below : Math.max(8, bounds.top - menuHeight - 6);
+  directorySetMenu.style.left = `${left}px`;
+  directorySetMenu.style.top = `${top}px`;
+}
+directorySetMenu.addEventListener('click', async (event) => {
+  const item = event.target.closest('[data-menu-directory-set]');
+  if (!item) return;
+  const set = preferences.directorySets[Number(item.dataset.menuDirectorySet)];
+  const side = directorySetMenuSide || activeSide;
+  closeDirectorySetMenu();
+  if (set) await openDirectorySet(set, side);
+});
 function renderDirectorySets() {
   if (directorySetDraft) {
     const draft = directorySetDraft;
@@ -628,6 +681,9 @@ function bindPanel(side) {
   const element = panel.element;
   element.querySelector('.pathbar')?.addEventListener('click', (event) => {
     if (event.target === event.currentTarget) editPanelPath(side);
+  });
+  element.querySelector('[data-action="directory-sets"]')?.addEventListener('click', (event) => {
+    showDirectorySetMenu(side, event.currentTarget);
   });
   element.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => {
     const view = button.dataset.view;
@@ -988,6 +1044,10 @@ document.addEventListener('mousedown', (event) => {
     pendingRightDrop = null;
   }
 });
+document.addEventListener('mousedown', (event) => {
+  if (directorySetMenu.contains(event.target) || event.target.closest('[data-action="directory-sets"]')) return;
+  closeDirectorySetMenu();
+});
 
 document.addEventListener('click', (event) => {
   const panelElement = event.target.closest('.panel');
@@ -1012,6 +1072,10 @@ document.addEventListener('keydown', async (event) => {
   }
   if (!settingsBackdrop.hidden) {
     if (event.key === 'Escape') closeSettings();
+    return;
+  }
+  if (!directorySetMenu.hidden && event.key === 'Escape') {
+    closeDirectorySetMenu();
     return;
   }
   const mod = event.ctrlKey || event.metaKey;
@@ -1168,8 +1232,7 @@ settingsContent.addEventListener('click', async (event) => {
     const set = preferences.directorySets[Number(open.dataset.openSet)];
     if (!set) return;
     closeSettings();
-    if (set.type === 'pair') Promise.all([navigate('left', set.leftPath), navigate('right', set.rightPath)]);
-    else navigate(set.openIn === 'active' ? activeSide : set.openIn, set.path);
+    openDirectorySet(set, activeSide);
   }
 });
 

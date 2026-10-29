@@ -6,9 +6,16 @@ function restoreColumns(columns) {
   const total = columns.reduce((sum, width) => sum + width, 0);
   return columns.map((width) => width / total * 100);
 }
+function restoreView(view) {
+  return view === 'icons' ? 'icons' : 'details';
+}
+function restoreIconSize(size) {
+  if (!Number.isFinite(size)) return 48;
+  return Math.max(32, Math.min(112, 32 + Math.round((size - 32) / 8) * 8));
+}
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: 'details', iconSize: 48, columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.left?.view), iconSize: restoreIconSize(savedLayout.left?.iconSize), columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.right?.view), iconSize: restoreIconSize(savedLayout.right?.iconSize), columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null }
 };
 let layoutInitialized = false;
 let activeSide = 'left';
@@ -48,9 +55,18 @@ function persistLayout() {
   try {
     localStorage.setItem('koa-layout', JSON.stringify({
       panelRatio,
-      left: { path: panels.left.path, columns: panels.left.columns },
-      right: { path: panels.right.path, columns: panels.right.columns }
+      left: { path: panels.left.path, columns: panels.left.columns, view: panels.left.view, iconSize: panels.left.iconSize },
+      right: { path: panels.right.path, columns: panels.right.columns, view: panels.right.view, iconSize: panels.right.iconSize }
     }));
+  } catch { /* Keep the file manager usable when storage is unavailable. */ }
+}
+function persistPanelViews() {
+  try {
+    const layout = JSON.parse(localStorage.getItem('koa-layout') || '{}') || {};
+    for (const side of ['left', 'right']) {
+      layout[side] = { ...layout[side], view: panels[side].view, iconSize: panels[side].iconSize };
+    }
+    localStorage.setItem('koa-layout', JSON.stringify(layout));
   } catch { /* Keep the file manager usable when storage is unavailable. */ }
 }
 
@@ -239,9 +255,9 @@ function panelChrome(side) {
     <div class="pathbar"><button class="path-home" data-action="drives" title="Choose a drive">⌂</button>${crumbs}</div>
   </div>
   <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-spacer"></span>
-    <div class="view-group"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Icons">${gridIcon('icons')}</button></div>
+    <div class="view-group" role="group" aria-label="Panel view"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details" aria-label="Details view" aria-pressed="${panel.view === 'details'}">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Thumbnails" aria-label="Thumbnail view" aria-pressed="${panel.view === 'icons'}">${gridIcon('icons')}</button></div>
     <button class="toolbar-button icon-only" data-action="match-other" aria-label="${side === 'left' ? 'Match right panel folder' : 'Match left panel folder'}" title="${side === 'left' ? 'Go to right panel folder' : 'Go to left panel folder'}">${actionIcon(side === 'left' ? 'left' : 'right')}</button>
-    ${panel.view === 'icons' ? `<label class="size-control" title="Icon size">${panel.iconSize}<input type="range" min="32" max="112" step="8" value="${panel.iconSize}" data-action="icon-size"></label>` : ''}
+    ${panel.view === 'icons' ? `<label class="size-control" title="Thumbnail size"><span data-size-value>${panel.iconSize}</span><input type="range" min="32" max="112" step="8" value="${panel.iconSize}" data-action="icon-size" aria-label="Thumbnail size"></label>` : ''}
   </div>`;
 }
 function gridIcon(type) {
@@ -296,15 +312,29 @@ function renderEntries(side) {
     if (preferences.groupFolders && a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   });
-  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)}><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
+  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)} style="height:${panel.iconSize + 48}px"><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
   return `<div class="file-area"><div class="icon-grid" style="--tile-width:${tileSize}px">${tiles}</div>${visibleEntries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
 }
 function renderPanel(side) {
   const panel = panels[side];
   panel.element.classList.toggle('is-active', activeSide === side);
   panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom">${panelStatus(panel)}</div>`;
+  if (panel.view === 'icons') applyThumbnailSize(panel);
   bindPanel(side);
   updateSummary();
+}
+function applyThumbnailSize(panel) {
+  const grid = panel.element.querySelector('.icon-grid');
+  if (!grid) return;
+  grid.style.setProperty('--tile-width', `${Math.round(panel.iconSize * 1.9)}px`);
+  grid.querySelectorAll('.icon-tile').forEach((tile) => { tile.style.height = `${panel.iconSize + 48}px`; });
+  grid.querySelectorAll('.tile-visual').forEach((visual) => {
+    visual.style.width = `${panel.iconSize}px`;
+    visual.style.height = `${panel.iconSize}px`;
+    const svg = visual.querySelector('svg');
+    svg?.style.setProperty('width', `${panel.iconSize}px`, 'important');
+    svg?.style.setProperty('height', `${panel.iconSize}px`, 'important');
+  });
 }
 function updateSummary() {
   updateHistoryButtons();
@@ -505,6 +535,23 @@ async function createFolder(side) {
 function bindPanel(side) {
   const panel = panels[side];
   const element = panel.element;
+  element.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => {
+    const view = button.dataset.view;
+    if (panel.view === view) return;
+    panel.view = view;
+    activeSide = side;
+    renderPanel(side);
+    persistPanelViews();
+    persistLayout();
+  }));
+  const sizeSlider = element.querySelector('[data-action="icon-size"]');
+  sizeSlider?.addEventListener('input', () => {
+    panel.iconSize = Number(sizeSlider.value);
+    element.querySelector('[data-size-value]').textContent = String(panel.iconSize);
+    applyThumbnailSize(panel);
+    persistPanelViews();
+    persistLayout();
+  });
   element.querySelectorAll('[data-crumb]').forEach((crumb) => crumb.addEventListener('click', () => {
     const part = pathParts(panel.path)[Number(crumb.dataset.crumb)];
     if (part) navigate(side, part.path);

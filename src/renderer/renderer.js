@@ -14,7 +14,7 @@ preferences = { ...defaultPreferences, ...savedPreferences };
 if (!Array.isArray(savedPreferences.directorySets)) preferences.directorySets = (savedPreferences.bookmarks || []).map((directory) => ({ type: 'single', path: directory, openIn: 'active', name: '' }));
 delete preferences.bookmarks;
 const status = document.querySelector('#status-message');
-const summary = document.querySelector('#selection-summary');
+const summary = document.querySelector('#drive-space-summary');
 const menu = document.querySelector('#context-menu');
 const historyMenu = document.querySelector('#history-menu');
 const dropActionMenu = document.querySelector('#drop-action-menu');
@@ -31,6 +31,9 @@ let resolveConflictDecision = null;
 let rightDragCandidate = null;
 let pendingRightDrop = null;
 let suppressRightContextUntil = 0;
+let diskSpaceTimer = null;
+let diskSpaceRequestId = 0;
+let displayedSpacePath = null;
 
 function savePreferences() {
   localStorage.setItem('koa-settings', JSON.stringify(preferences));
@@ -276,19 +279,40 @@ function renderEntries(side) {
 }
 function renderPanel(side) {
   const panel = panels[side];
-  const selectedCount = panel.selected.size;
-  const itemCount = panel.entries.length;
   panel.element.classList.toggle('is-active', activeSide === side);
-  panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom"><strong>${selectedCount || itemCount}</strong>&nbsp;${selectedCount ? 'selected' : 'items'}<span class="bottom-spacer"></span></div>`;
+  panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom">${panelStatus(panel)}</div>`;
   bindPanel(side);
   updateSummary();
 }
 function updateSummary() {
-  const panel = panels[activeSide];
-  const count = panel.selected.size;
-  const bytes = panel.entries.filter((entry) => panel.selected.has(entry.path)).reduce((sum, entry) => sum + (entry.size || 0), 0);
-  summary.textContent = count ? `${count} selected · ${formatSize(bytes, false)}` : 'Nothing selected';
   updateHistoryButtons();
+  const directory = panels[activeSide].path;
+  const requestId = ++diskSpaceRequestId;
+  clearTimeout(diskSpaceTimer);
+  if (!directory) {
+    summary.textContent = 'Drive space unavailable';
+    displayedSpacePath = null;
+    return;
+  }
+  if (displayedSpacePath !== directory) summary.textContent = 'Reading drive space…';
+  diskSpaceTimer = setTimeout(async () => {
+    try {
+      const space = await window.fileManager.diskSpace(directory);
+      if (requestId !== diskSpaceRequestId || panels[activeSide].path !== directory) return;
+      summary.textContent = `Used ${formatSize(space.used, false)} · Free ${formatSize(space.free, false)}`;
+      displayedSpacePath = directory;
+    } catch {
+      if (requestId !== diskSpaceRequestId || panels[activeSide].path !== directory) return;
+      summary.textContent = 'Drive space unavailable';
+      displayedSpacePath = directory;
+    }
+  }, 120);
+}
+function panelStatus(panel) {
+  const selectedCount = panel.selected.size;
+  const selectedFiles = panel.entries.filter((entry) => panel.selected.has(entry.path) && !entry.isDirectory);
+  const fileBytes = selectedFiles.reduce((sum, entry) => sum + (entry.size || 0), 0);
+  return `<strong>${selectedCount || panel.entries.length}</strong>&nbsp;${selectedCount ? 'selected' : 'items'}<span class="bottom-spacer"></span>${selectedCount && selectedFiles.length ? `<span class="panel-selection-size">${formatSize(fileBytes, false)}</span>` : ''}`;
 }
 function updateHistoryButtons() {
   const panel = panels[activeSide];
@@ -440,7 +464,7 @@ function refreshSelection() {
       item.classList.toggle('selected', panel.selected.has(entry.path));
     });
     const bottom = panelElement.querySelector('.panel-bottom');
-    if (bottom) bottom.innerHTML = `<strong>${panel.selected.size || panel.entries.length}</strong>&nbsp;${panel.selected.size ? 'selected' : 'items'}<span class="bottom-spacer"></span>`;
+    if (bottom) bottom.innerHTML = panelStatus(panel);
   });
   updateSummary();
 }

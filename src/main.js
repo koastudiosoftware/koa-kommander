@@ -173,6 +173,13 @@ ipcMain.handle('fs:list', async (_event, directory) => {
   return { path: current, parent: path.dirname(current), entries: results };
 });
 
+ipcMain.handle('fs:disk-space', async (_event, directory) => {
+  const stats = await fs.statfs(path.resolve(directory));
+  const total = stats.blocks * stats.bsize;
+  const free = (stats.bavail ?? stats.bfree) * stats.bsize;
+  return { total, free, used: Math.max(0, total - free) };
+});
+
 ipcMain.handle('fs:transfer', async (_event, { sources, destination, operation, conflictAction, renameTo }) => {
   const targetDirectory = path.resolve(destination);
   const results = [];

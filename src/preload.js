@@ -11,6 +11,13 @@ contextBridge.exposeInMainWorld('fileManager', {
   },
   chooseDirectory: (defaultPath) => ipcRenderer.invoke('dialog:choose-directory', defaultPath),
   list: (directory) => ipcRenderer.invoke('fs:list', directory),
+  search: (request) => ipcRenderer.invoke('fs:search', request),
+  cancelSearch: (searchId) => ipcRenderer.invoke('fs:cancel-search', searchId),
+  onSearchProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on('fs:search-progress', listener);
+    return () => ipcRenderer.removeListener('fs:search-progress', listener);
+  },
   thumbnail: (itemPath, cachePath) => ipcRenderer.invoke('fs:thumbnail', { itemPath, cachePath }),
   thumbnailCacheDefaultPath: () => ipcRenderer.invoke('settings:thumbnail-cache-default-path'),
   clearThumbnailCache: (cachePath) => ipcRenderer.invoke('fs:clear-thumbnail-cache', cachePath),

@@ -14,8 +14,8 @@ function restoreIconSize(size) {
   return Math.max(32, Math.min(160, 32 + Math.round((size - 32) / 8) * 8));
 }
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.left?.view), iconSize: restoreIconSize(savedLayout.left?.iconSize), columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.right?.view), iconSize: restoreIconSize(savedLayout.right?.iconSize), columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.left?.view), iconSize: restoreIconSize(savedLayout.left?.iconSize), columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null, searchId: null, searchRoot: null },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.right?.view), iconSize: restoreIconSize(savedLayout.right?.iconSize), columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null, searchId: null, searchRoot: null }
 };
 let layoutInitialized = false;
 let activeSide = 'left';
@@ -227,6 +227,9 @@ conflictRenameInput.addEventListener('keydown', (event) => {
 
 async function navigate(side, directory, { historyMode = 'push', historyIndex = -1 } = {}) {
   const panel = panels[side];
+  if (panel.searchId) window.fileManager.cancelSearch(panel.searchId);
+  panel.searchId = null;
+  panel.searchRoot = null;
   setStatus('Loading folder…');
   try {
     const result = await window.fileManager.list(directory);
@@ -342,6 +345,11 @@ function entryAttributes(entry, side, index, tile = false) {
   const selected = panels[side].selected.has(entry.path);
   return `${tile ? 'class="icon-tile' : 'class="file-row'} ${selected ? 'selected' : ''}" data-entry="${index}" draggable="true" tabindex="0"`;
 }
+function searchLocation(entry, panel) {
+  if (!panel.searchRoot) return '';
+  const relative = entry.path.slice(panel.searchRoot.length).replace(/^[\\/]+/, '').split(/[\\/]/).slice(0, -1).join(' › ');
+  return relative || '.';
+}
 function renderEntries(side) {
   const panel = panels[side];
   if (panel.view === 'details') {
@@ -356,11 +364,11 @@ function renderEntries(side) {
     });
     const rows = sortedEntries.map((entry) => {
       const index = panel.entries.indexOf(entry);
-      return `<tr ${entryAttributes(entry, side, index)}><td><div class="name-cell"><span class="file-icon ${kind(entry)}">${icon(kind(entry))}</span><span class="file-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span></div></td><td>${formatSize(entry.size, entry.isDirectory)}</td><td class="date-cell">${formatDate(entry.modified)}</td></tr>`;
+      return `<tr ${entryAttributes(entry, side, index)}><td><div class="name-cell"><span class="file-icon ${kind(entry)}">${icon(kind(entry))}</span><span class="search-result-label"><span class="file-name" title="${escapeHtml(entry.path)}">${escapeHtml(entry.name)}</span>${panel.searchRoot ? `<span class="search-result-location">${escapeHtml(searchLocation(entry, panel))}</span>` : ''}</span></div></td><td>${formatSize(entry.size, entry.isDirectory)}</td><td class="date-cell">${formatDate(entry.modified)}</td></tr>`;
     }).join('');
     const colgroup = panel.columns.map((width) => `<col style="width:${width}%">`).join('');
     const heading = (key, label, boundary = null) => `<th><button class="column-sort" data-sort="${key}">${label}${panel.sortBy === key ? `<span class="sort-arrow" aria-label="sorted ${panel.sortDirection === 'asc' ? 'ascending' : 'descending'}">${panel.sortDirection === 'asc' ? '▲' : '▼'}</span>` : ''}</button>${boundary === null ? '' : `<span class="column-grip" data-column-boundary="${boundary}" title="Resize ${label} column" aria-label="Resize ${label} column"></span>`}</th>`;
-    const emptyState = visibleEntries.length ? '' : `<div class="empty-state">${icon('folder')}<strong>${panel.entries.length ? 'No visible items' : 'This folder is empty'}</strong><span>${panel.entries.length ? 'Hidden items are not shown' : 'Drop files here to add them'}</span></div>`;
+    const emptyState = visibleEntries.length ? '' : `<div class="empty-state">${icon('folder')}<strong>${panel.searchRoot ? 'No matches found' : panel.entries.length ? 'No visible items' : 'This folder is empty'}</strong><span>${panel.searchRoot ? `Search: ${escapeHtml(document.querySelector('#search-query').value)}` : panel.entries.length ? 'Hidden items are not shown' : 'Drop files here to add them'}</span></div>`;
     return `<div class="file-area"><table class="file-list" style="--name-width:${panel.columns[0]}%;--size-width:${panel.columns[1]}%;--date-width:${panel.columns[2]}%"><colgroup>${colgroup}</colgroup><thead><tr>${heading('name', 'Name', 0)}${heading('size', 'Size', 1)}${heading('modified', 'Date modified')}</tr></thead><tbody>${rows}</tbody></table>${emptyState}</div>`;
   }
   const tileSize = panel.iconSize + 48;
@@ -369,20 +377,112 @@ function renderEntries(side) {
     if (preferences.groupFolders && a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   });
-  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)} style="width:${tileSize}px;height:${tileSize}px"><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</div></div>`).join('');
-  return `<div class="file-area"><div class="icon-grid" style="--tile-width:${tileSize}px">${tiles}</div>${visibleEntries.length ? '' : '<div class="empty-state">'+icon('folder')+'<strong>This folder is empty</strong><span>Drop files here to add them</span></div>'}</div>`;
+  const tiles = orderedEntries.map((entry) => `<div ${entryAttributes(entry, side, panel.entries.indexOf(entry), true)} style="width:${tileSize}px;height:${tileSize}px"><div class="tile-visual ${kind(entry)}" style="width:${panel.iconSize}px;height:${panel.iconSize}px">${icon(kind(entry))}</div><div class="tile-name" title="${escapeHtml(entry.path)}">${escapeHtml(entry.name)}${panel.searchRoot ? `<span class="search-result-location">${escapeHtml(searchLocation(entry, panel))}</span>` : ''}</div></div>`).join('');
+  return `<div class="file-area"><div class="icon-grid" style="--tile-width:${tileSize}px">${tiles}</div>${visibleEntries.length ? '' : '<div class="empty-state">'+icon('folder')+`<strong>${panel.searchRoot ? 'No matches found' : 'This folder is empty'}</strong><span>${panel.searchRoot ? 'Try another name or pattern' : 'Drop files here to add them'}</span>`+'</div>'}</div>`;
 }
-function renderPanel(side) {
+function renderPanel(side, { loadThumbnails = true } = {}) {
   const panel = panels[side];
   panel.element.classList.toggle('is-active', activeSide === side);
   panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom">${panelStatus(panel)}</div>`;
   if (panel.view === 'icons') {
     applyThumbnailSize(panel);
-    loadThumbnailImages(side);
+    if (loadThumbnails) loadThumbnailImages(side);
   }
   bindPanel(side);
   updateSummary();
 }
+
+const searchForm = document.querySelector('#global-search');
+const searchQuery = document.querySelector('#search-query');
+const searchMode = document.querySelector('#search-mode');
+const searchCancel = document.querySelector('#search-cancel');
+let searchDebounceTimer = null;
+let searchRenderTimer = null;
+function updateSearchControl() {
+  searchCancel.hidden = !searchQuery.value;
+  searchCancel.title = panels[activeSide].searchId ? 'Cancel search' : 'Clear search results';
+  searchCancel.setAttribute('aria-label', searchCancel.title);
+}
+async function runPanelSearch() {
+  const side = activeSide;
+  const panel = panels[side];
+  const query = searchQuery.value.trim();
+  if (!query || !panel.path) return;
+  if (panel.searchId) window.fileManager.cancelSearch(panel.searchId);
+  const searchId = crypto.randomUUID();
+  const root = panel.path;
+  panel.searchId = searchId;
+  panel.searchRoot = root;
+  panel.searchMatches = [];
+  panel.selected.clear();
+  updateSearchControl();
+  setStatus('Searching file names…');
+  renderPanel(side);
+  try {
+    const result = await window.fileManager.search({ searchId, root, query, mode: searchMode.value });
+    if (panel.searchId !== searchId) return;
+    panel.searchId = null;
+    panel.searchRoot = root;
+    clearTimeout(searchRenderTimer);
+    panel.entries = result.results.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    panel.selected.clear();
+    updateSearchControl();
+    renderPanel(side);
+    setStatus(result.cancelled ? `Search cancelled · ${result.results.length} matches` : `Search complete · ${result.results.length} matches`);
+  } catch (error) {
+    if (panel.searchId !== searchId) return;
+    panel.searchId = null;
+    panel.searchRoot = null;
+    updateSearchControl();
+    await navigate(side, root);
+    toast(error.message);
+  }
+}
+window.fileManager.onSearchProgress(({ searchId, scanned, matches, results = [] }) => {
+  const side = ['left', 'right'].find((candidate) => panels[candidate].searchId === searchId);
+  if (!side) return;
+  const panel = panels[side];
+  panel.searchMatches.push(...results);
+  if (side === activeSide) setStatus(`Searching… ${scanned.toLocaleString()} checked · ${matches} matches`);
+  clearTimeout(searchRenderTimer);
+  searchRenderTimer = setTimeout(() => {
+    if (panel.searchId !== searchId) return;
+    panel.entries = [...panel.searchMatches].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    renderPanel(side, { loadThumbnails: false });
+  }, 120);
+});
+searchForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  clearTimeout(searchDebounceTimer);
+  runPanelSearch();
+});
+searchQuery.addEventListener('input', () => {
+  updateSearchControl();
+  clearTimeout(searchDebounceTimer);
+  if (searchQuery.value.trim()) {
+    searchDebounceTimer = setTimeout(runPanelSearch, 250);
+    return;
+  }
+  const panel = panels[activeSide];
+  if (panel.searchRoot) navigate(activeSide, panel.searchRoot);
+});
+searchQuery.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    const panel = panels[activeSide];
+    if (panel.searchId) window.fileManager.cancelSearch(panel.searchId);
+    if (panel.searchRoot) navigate(activeSide, panel.searchRoot);
+    searchQuery.value = '';
+    updateSearchControl();
+  }
+});
+searchCancel.addEventListener('click', () => {
+  const panel = panels[activeSide];
+  if (panel.searchId) window.fileManager.cancelSearch(panel.searchId);
+  if (panel.searchRoot) navigate(activeSide, panel.searchRoot);
+  searchQuery.value = '';
+  updateSearchControl();
+});
 function applyThumbnailSize(panel) {
   const grid = panel.element.querySelector('.icon-grid');
   if (!grid) return;
@@ -454,7 +554,7 @@ function panelStatus(panel) {
   const selectedCount = panel.selected.size;
   const selectedFiles = panel.entries.filter((entry) => panel.selected.has(entry.path) && !entry.isDirectory);
   const fileBytes = selectedFiles.reduce((sum, entry) => sum + (entry.size || 0), 0);
-  return `<strong>${selectedCount || panel.entries.length}</strong>&nbsp;${selectedCount ? 'selected' : 'items'}<span class="bottom-spacer"></span>${selectedCount && selectedFiles.length ? `<span class="panel-selection-size">${formatSize(fileBytes, false)}</span>` : ''}`;
+  return `<strong>${selectedCount || panel.entries.length}</strong>&nbsp;${selectedCount ? 'selected' : panel.searchRoot ? 'matches' : 'items'}<span class="bottom-spacer"></span>${selectedCount && selectedFiles.length ? `<span class="panel-selection-size">${formatSize(fileBytes, false)}</span>` : ''}`;
 }
 function updateHistoryButtons() {
   const panel = panels[activeSide];

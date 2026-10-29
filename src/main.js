@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const directoryWatchers = new Map();
+const activeSearches = new Map();
 const maxThumbnailPixels = 192;
 const thumbnailCachePrefix = 'koa-thumbnail-';
 
@@ -166,6 +167,76 @@ ipcMain.handle('fs:roots', async () => {
     roots.push({ name: '/', path: '/', isDirectory: true });
   }
   return roots;
+});
+
+function createSearchMatcher(query, mode) {
+  if (!query) throw new Error('Enter a name to search for.');
+  if (mode === 'regex') {
+    try { return new RegExp(query, 'i'); }
+    catch (error) { throw new Error(`Invalid regular expression: ${error.message}`); }
+  }
+  if (mode === 'glob') {
+    const expression = query.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+    return new RegExp(`^${expression}$`, 'i');
+  }
+  return { test: (name) => name.toLocaleLowerCase().includes(query.toLocaleLowerCase()) };
+}
+
+ipcMain.handle('fs:search', async (event, { searchId, root, query, mode }) => {
+  const matcher = createSearchMatcher(String(query || '').trim(), mode);
+  const job = { cancelled: false };
+  activeSearches.set(searchId, job);
+  const start = resolvePath(root);
+  let rootStats;
+  try { rootStats = await fs.stat(start); }
+  catch (error) { activeSearches.delete(searchId); throw error; }
+  if (!rootStats.isDirectory()) {
+    activeSearches.delete(searchId);
+    throw new Error('Search location must be a folder.');
+  }
+  const pending = [start];
+  const results = [];
+  let pendingMatches = [];
+  let scanned = 0;
+  try {
+    while (pending.length && !job.cancelled) {
+      const directory = pending.pop();
+      let entries;
+      try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+      catch { continue; }
+      for (const entry of entries) {
+        if (job.cancelled) break;
+        scanned += 1;
+        const fullPath = path.join(directory, entry.name);
+        if (matcher.test(entry.name)) {
+          try {
+            const stats = await fs.stat(fullPath);
+            const match = { name: entry.name, path: fullPath, isDirectory: stats.isDirectory(), isFile: stats.isFile(), size: stats.size, modified: stats.mtime.toISOString() };
+            results.push(match);
+            pendingMatches.push(match);
+          } catch { /* Skip entries removed during search. */ }
+        }
+        if (entry.isDirectory()) pending.push(fullPath);
+        if (scanned % 100 === 0) {
+          if (!event.sender.isDestroyed()) event.sender.send('fs:search-progress', { searchId, scanned, matches: results.length, directory, results: pendingMatches });
+          pendingMatches = [];
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      }
+    }
+    if (pendingMatches.length && !event.sender.isDestroyed()) {
+      event.sender.send('fs:search-progress', { searchId, scanned, matches: results.length, directory: pending.at(-1) || start, results: pendingMatches });
+    }
+    return { searchId, root: start, results, scanned, cancelled: job.cancelled };
+  } finally {
+    activeSearches.delete(searchId);
+  }
+});
+
+ipcMain.handle('fs:cancel-search', (_event, searchId) => {
+  const job = activeSearches.get(searchId);
+  if (job) job.cancelled = true;
+  return Boolean(job);
 });
 
 ipcMain.handle('dialog:choose-directory', async (event, defaultPath) => {

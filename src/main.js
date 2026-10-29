@@ -4,9 +4,11 @@ const fsSync = require('node:fs');
 const { watch } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFile, execFileSync } = require('node:child_process');
 const directoryWatchers = new Map();
 const activeSearches = new Map();
+let windowsDriveMetadataCache = { loadedAt: 0, drives: new Map() };
+let windowsDriveMetadataPending = null;
 const maxThumbnailPixels = 192;
 const thumbnailCachePrefix = 'koa-thumbnail-';
 
@@ -37,6 +39,39 @@ function expandEnvironmentVariables(value) {
 
 function resolvePath(value) {
   return path.resolve(expandEnvironmentVariables(value));
+}
+
+function runPowerShell(script, env = {}) {
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-Command', script], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 10000,
+      env: { ...process.env, ...env }
+    }, (error, stdout, stderr) => {
+      if (error) reject(new Error((stderr || error.message).trim()));
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+async function getWindowsDriveMetadata(forceRefresh = false) {
+  if (!forceRefresh && Date.now() - windowsDriveMetadataCache.loadedAt < 1500) return windowsDriveMetadataCache.drives;
+  if (windowsDriveMetadataPending) return windowsDriveMetadataPending;
+  const script = "$items = [System.IO.DriveInfo]::GetDrives() | ForEach-Object { $label = ''; if ($_.IsReady) { try { $label = $_.VolumeLabel } catch {} }; [PSCustomObject]@{ name = $_.Name; label = $label; driveType = [int]$_.DriveType } }; ConvertTo-Json -InputObject @($items) -Compress";
+  windowsDriveMetadataPending = (async () => {
+    let drives = new Map();
+    try {
+      const output = await runPowerShell(script);
+      const parsed = JSON.parse(output || '[]');
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      drives = new Map(items.map((item) => [String(item.name || '').toUpperCase(), item]));
+    } catch { /* Drive discovery still works without optional labels or removable-drive metadata. */ }
+    windowsDriveMetadataCache = { loadedAt: Date.now(), drives };
+    return drives;
+  })();
+  try { return await windowsDriveMetadataPending; }
+  finally { windowsDriveMetadataPending = null; }
 }
 
 function thumbnailCacheDirectory(directory) {
@@ -156,17 +191,67 @@ async function transferInfo(fullPath) {
 ipcMain.handle('fs:roots', async () => {
   const roots = [];
   if (process.platform === 'win32') {
+    const driveMetadata = await getWindowsDriveMetadata();
     for (let code = 67; code <= 90; code += 1) {
       const drive = `${String.fromCharCode(code)}:\\`;
       try {
         await fs.access(drive);
-        roots.push({ name: drive, path: drive, isDirectory: true });
+        const metadata = driveMetadata.get(drive.toUpperCase());
+        roots.push({
+          name: drive.slice(0, 2),
+          path: drive,
+          label: metadata?.label || '',
+          driveType: metadata?.driveType ?? null,
+          canEject: metadata?.driveType === 2,
+          isDirectory: true
+        });
       } catch { /* Skip unavailable drives. */ }
     }
   } else {
     roots.push({ name: '/', path: '/', isDirectory: true });
   }
   return roots;
+});
+
+ipcMain.handle('fs:eject-drive', async (_event, driveRoot) => {
+  if (process.platform !== 'win32' || typeof driveRoot !== 'string' || !/^[A-Za-z]:\\$/.test(driveRoot)) {
+    return { ok: false, error: 'This drive cannot be ejected.' };
+  }
+  const metadata = await getWindowsDriveMetadata(true);
+  if (metadata.get(driveRoot.toUpperCase())?.driveType !== 2) {
+    return { ok: false, error: 'Windows does not identify this as a removable drive.' };
+  }
+
+  const affectedWatchers = [];
+  const normalizedRoot = path.resolve(driveRoot);
+  for (const [key, record] of directoryWatchers) {
+    if (record.webContentsId !== _event.sender.id) continue;
+    if (record.directory.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+      affectedWatchers.push({ webContents: record.webContents, side: key.split(':').at(-1), directory: record.directory });
+      closeDirectoryWatcher(key);
+    }
+  }
+
+  try {
+    const driveName = driveRoot.slice(0, 2);
+    const script = "$shell = New-Object -ComObject Shell.Application; $computer = $shell.Namespace(17); $drive = $computer.ParseName($env:KOA_KOMMANDER_DRIVE); if (-not $drive) { throw 'Windows could not find the drive.' }; $drive.InvokeVerb('Eject')";
+    await runPowerShell(script, { KOA_KOMMANDER_DRIVE: driveName });
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      try { await fs.access(driveRoot); }
+      catch {
+        return { ok: true, affected: affectedWatchers.map(({ side, directory }) => ({ side, directory })) };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('Windows did not eject the drive. Close any files or folders using it and try again.');
+  } catch (error) {
+    for (const watcher of affectedWatchers) {
+      if (watcher.webContents.isDestroyed()) continue;
+      watcher.webContents.send('fs:restore-directory-watch', { side: watcher.side, directory: watcher.directory });
+    }
+    return { ok: false, error: error.message };
+  }
 });
 
 function createSearchMatcher(query, mode) {
@@ -248,7 +333,7 @@ ipcMain.handle('dialog:choose-directory', async (event, defaultPath) => {
   return result.canceled ? null : result.filePaths[0] || null;
 });
 
-ipcMain.handle('fs:watch-directory', (event, { side, directory }) => {
+ipcMain.handle('fs:watch-directory', async (event, { side, directory }) => {
   if (side !== 'left' && side !== 'right') throw new Error('Invalid panel for directory watch.');
   const key = `${event.sender.id}:${side}`;
   closeDirectoryWatcher(key);
@@ -268,7 +353,7 @@ ipcMain.handle('fs:watch-directory', (event, { side, directory }) => {
       if (directoryWatchers.get(key)?.watcher === watcher) closeDirectoryWatcher(key);
     });
     directoryWatchers.set(key, { watcher, webContents: event.sender, webContentsId: event.sender.id, directory: currentDirectory, timer: null });
-    return { ok: true };
+    return { ok: true, watched: true };
   } catch (error) {
     return { ok: false, error: error.message };
   }

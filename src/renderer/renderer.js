@@ -14,8 +14,8 @@ function restoreIconSize(size) {
   return Math.max(32, Math.min(160, 32 + Math.round((size - 32) / 8) * 8));
 }
 const panels = {
-  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.left?.view), iconSize: restoreIconSize(savedLayout.left?.iconSize), columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null, searchId: null, searchRoot: null },
-  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.right?.view), iconSize: restoreIconSize(savedLayout.right?.iconSize), columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null, searchId: null, searchRoot: null }
+  left: { element: document.querySelector('#panel-left'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.left?.view), iconSize: restoreIconSize(savedLayout.left?.iconSize), columns: restoreColumns(savedLayout.left?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null, searchId: null, searchRoot: null, thumbnailGeneration: 0 },
+  right: { element: document.querySelector('#panel-right'), path: null, entries: [], selected: new Set(), view: restoreView(savedLayout.right?.view), iconSize: restoreIconSize(savedLayout.right?.iconSize), columns: restoreColumns(savedLayout.right?.columns), sortBy: 'name', sortDirection: 'asc', history: [], historyIndex: -1, watchPath: null, searchId: null, searchRoot: null, thumbnailGeneration: 0 }
 };
 let layoutInitialized = false;
 let activeSide = 'left';
@@ -37,6 +37,10 @@ const menu = document.querySelector('#context-menu');
 const historyMenu = document.querySelector('#history-menu');
 const directorySetMenu = document.querySelector('#directory-set-menu');
 let directorySetMenuSide = null;
+let detectedDrives = [];
+const driveContextMenu = document.querySelector('#drive-context-menu');
+let driveContextSide = null;
+let driveContextRoot = null;
 const dropActionMenu = document.querySelector('#drop-action-menu');
 const conflictBackdrop = document.querySelector('#conflict-backdrop');
 const conflictItems = document.querySelector('#conflict-items');
@@ -228,6 +232,7 @@ conflictRenameInput.addEventListener('keydown', (event) => {
 
 async function navigate(side, directory, { historyMode = 'push', historyIndex = -1 } = {}) {
   const panel = panels[side];
+  panel.thumbnailGeneration += 1;
   if (panel.searchId) window.fileManager.cancelSearch(panel.searchId);
   panel.searchId = null;
   panel.searchRoot = null;
@@ -258,6 +263,7 @@ async function navigate(side, directory, { historyMode = 'push', historyIndex = 
     setStatus('Ready');
     return true;
   } catch (error) {
+    if (panel.view === 'icons') loadThumbnailImages(side, panel.thumbnailGeneration);
     toast(`Could not open folder: ${error.message}`);
     setStatus('Could not load folder');
     return false;
@@ -267,17 +273,135 @@ async function navigate(side, directory, { historyMode = 'push', historyIndex = 
 function panelChrome(side) {
   const panel = panels[side];
   const parts = panel.path ? pathParts(panel.path) : [];
-  const crumbs = parts.map((part, index) => `<span class="crumb" data-crumb="${index}">${escapeHtml(part.label)}</span>${index < parts.length - 1 ? '<span class="crumb-sep">›</span>' : ''}`).join('');
+  const crumbs = parts.map((part, index) => {
+    const label = index === 0 && /^[A-Za-z]:\\$/.test(part.label) ? part.label.slice(0, 2) : part.label;
+    return `<span class="crumb" data-crumb="${index}">${escapeHtml(label)}</span>${index < parts.length - 1 ? '<span class="crumb-sep">›</span>' : ''}`;
+  }).join('');
   return `<div class="panel-top">
-    <div class="pathbar"><button class="path-home" data-action="drives" title="Choose a drive">⌂</button>${crumbs}</div>
+    <div class="pathbar"><button class="path-home" data-action="home" title="Go to Home folder" aria-label="Go to Home folder">⌂</button>${crumbs}</div>
   </div>
-  <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-spacer"></span>
+  <div class="toolbar"><button class="toolbar-button icon-only" data-action="up" aria-label="Go up one folder" title="Go up one folder">${actionIcon('up')}</button><button class="toolbar-button icon-only" data-action="refresh" aria-label="Refresh" title="Refresh">${actionIcon('refresh')}</button><span class="toolbar-divider" aria-hidden="true"></span><span class="drive-button-group" data-drive-buttons>${renderDriveButtons(side)}</span><span class="toolbar-spacer"></span>
     <div class="view-group" role="group" aria-label="Panel view"><button class="view-button ${panel.view === 'details' ? 'active' : ''}" data-view="details" title="Details" aria-label="Details view" aria-pressed="${panel.view === 'details'}">${gridIcon('details')}</button><button class="view-button ${panel.view === 'icons' ? 'active' : ''}" data-view="icons" title="Thumbnails" aria-label="Thumbnail view" aria-pressed="${panel.view === 'icons'}">${gridIcon('icons')}</button></div>
     <button class="toolbar-button directory-set-trigger" data-action="directory-sets" aria-label="Open a saved directory set" aria-expanded="false" title="Directory sets">${actionIcon('sets')}<span>Sets</span></button>
     <button class="toolbar-button icon-only" data-action="match-other" aria-label="${side === 'left' ? 'Match right panel folder' : 'Match left panel folder'}" title="${side === 'left' ? 'Go to right panel folder' : 'Go to left panel folder'}">${actionIcon(side === 'left' ? 'left' : 'right')}</button>
     ${panel.view === 'icons' ? `<label class="size-control" title="Thumbnail size"><span data-size-value>${panel.iconSize}</span><input type="range" min="32" max="160" step="8" value="${panel.iconSize}" data-action="icon-size" aria-label="Thumbnail size"></label>` : ''}
   </div>`;
 }
+function renderDriveButtons(side) {
+  return detectedDrives.map((drive) => {
+    const isCurrent = panels[side].path?.toLowerCase().startsWith(drive.path.toLowerCase());
+    const title = `${drive.name}${drive.label ? ` — ${drive.label}` : ''}${drive.canEject ? ' (Removable)' : ''}`;
+    return `<button class="toolbar-button drive-button ${isCurrent ? 'active' : ''}" data-drive-button="${escapeHtml(drive.path)}" aria-label="Open ${escapeHtml(drive.name)}${drive.label ? `, ${escapeHtml(drive.label)}` : ''}" aria-pressed="${Boolean(isCurrent)}" title="${escapeHtml(title)}">${escapeHtml(drive.name)}</button>`;
+  }).join('');
+}
+async function refreshDetectedDrives() {
+  try {
+    detectedDrives = await window.fileManager.roots();
+    refreshDriveButtonGroups();
+  } catch { /* Keep the last detected drive buttons if discovery temporarily fails. */ }
+}
+function refreshDriveButtonGroups() {
+  for (const side of ['left', 'right']) {
+    const group = panels[side].element.querySelector('[data-drive-buttons]');
+    if (!group) continue;
+    group.innerHTML = renderDriveButtons(side);
+    bindDriveButtons(side);
+  }
+}
+function bindDriveButtons(side) {
+  const group = panels[side].element.querySelector('[data-drive-buttons]');
+  group?.querySelectorAll('[data-drive-button]').forEach((button) => {
+    button.addEventListener('click', () => {
+      activeSide = side;
+      panels.left.element.classList.toggle('is-active', side === 'left');
+      panels.right.element.classList.toggle('is-active', side === 'right');
+      updateSummary();
+      navigate(side, button.dataset.driveButton);
+    });
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      activeSide = side;
+      panels.left.element.classList.toggle('is-active', side === 'left');
+      panels.right.element.classList.toggle('is-active', side === 'right');
+      updateSummary();
+      showDriveContextMenu(side, button.dataset.driveButton, event.clientX, event.clientY);
+    });
+  });
+}
+async function showDriveContextMenu(side, rootPath, x, y) {
+  driveContextSide = side;
+  driveContextRoot = rootPath;
+  driveContextMenu.innerHTML = '<div class="drive-context-status">Loading drive details…</div>';
+  driveContextMenu.hidden = false;
+  driveContextMenu.style.left = `${Math.max(8, Math.min(x, innerWidth - 218))}px`;
+  driveContextMenu.style.top = `${Math.max(8, Math.min(y, innerHeight - 180))}px`;
+  try {
+    const roots = await window.fileManager.roots();
+    if (driveContextSide !== side || driveContextRoot !== rootPath || driveContextMenu.hidden) return;
+    const root = roots.find((entry) => entry.path.toLowerCase() === rootPath.toLowerCase());
+    const driveName = root?.name || rootPath.slice(0, 2);
+    const details = root?.label ? `<small>${escapeHtml(root.label)}</small>` : '';
+    const action = root?.canEject
+      ? '<button role="menuitem" data-eject-drive>Eject</button>'
+      : '<button role="menuitem" data-open-drive>Open in File Explorer</button>';
+    driveContextMenu.innerHTML = `<div class="drive-context-heading"><strong>${escapeHtml(driveName)}</strong>${details}</div><div class="menu-separator"></div>${action}`;
+  } catch (error) {
+    driveContextMenu.innerHTML = '<div class="drive-context-status">Could not load drive details.</div>';
+    toast(`Could not load drive details: ${error.message}`);
+  }
+}
+driveContextMenu.addEventListener('click', async (event) => {
+  if (!driveContextRoot) return;
+  const eject = event.target.closest('[data-eject-drive]');
+  const open = event.target.closest('[data-open-drive]');
+  if (!eject && !open) return;
+  const rootPath = driveContextRoot;
+  const side = driveContextSide;
+  driveContextMenu.hidden = true;
+  driveContextSide = null;
+  driveContextRoot = null;
+  if (open) {
+    const result = await window.fileManager.openInFileManager(rootPath);
+    if (result?.error) toast(result.error);
+    return;
+  }
+  const result = await window.fileManager.ejectDrive(rootPath);
+  if (!result.ok) {
+    toast(result.error || `Could not eject ${rootPath.slice(0, 2)}.`);
+    return;
+  }
+  toast(`Ejected ${rootPath.slice(0, 2)}.`);
+  const remainingRoots = await window.fileManager.roots();
+  detectedDrives = remainingRoots;
+  refreshDriveButtonGroups();
+  const fallback = remainingRoots.find((root) => root.path.toLowerCase() !== rootPath.toLowerCase());
+  const affectedSides = new Set((result.affected || []).map((item) => item.side));
+  for (const candidate of ['left', 'right']) {
+    if (panels[candidate].path?.toLowerCase().startsWith(rootPath.toLowerCase())) affectedSides.add(candidate);
+  }
+  if (side && panels[side].path?.toLowerCase().startsWith(rootPath.toLowerCase())) affectedSides.add(side);
+  for (const affectedSide of affectedSides) {
+    panels[affectedSide].watchPath = null;
+    const target = fallback?.path || (await window.fileManager.list()).path;
+    await navigate(affectedSide, target);
+  }
+});
+document.addEventListener('mousedown', (event) => {
+  if (!driveContextMenu.contains(event.target)) {
+    driveContextMenu.hidden = true;
+    driveContextSide = null;
+    driveContextRoot = null;
+  }
+});
+window.fileManager.onRestoreDirectoryWatch(({ side, directory }) => {
+  const panel = panels[side];
+  if (!panel || panel.path !== directory) return;
+  panel.watchPath = directory;
+  window.fileManager.watchDirectory(side, directory).then((result) => {
+    if (!result.ok && panel.watchPath === directory) panel.watchPath = null;
+  }).catch(() => { if (panel.watchPath === directory) panel.watchPath = null; });
+});
 function editPanelPath(side) {
   const panel = panels[side];
   const pathbar = panel.element.querySelector('.pathbar');
@@ -383,11 +507,12 @@ function renderEntries(side) {
 }
 function renderPanel(side, { loadThumbnails = true } = {}) {
   const panel = panels[side];
+  const thumbnailGeneration = ++panel.thumbnailGeneration;
   panel.element.classList.toggle('is-active', activeSide === side);
   panel.element.innerHTML = `${panelChrome(side)}${renderEntries(side)}<div class="panel-bottom">${panelStatus(panel)}</div>`;
   if (panel.view === 'icons') {
     applyThumbnailSize(panel);
-    if (loadThumbnails) loadThumbnailImages(side);
+    if (loadThumbnails) loadThumbnailImages(side, thumbnailGeneration);
   }
   bindPanel(side);
   updateSummary();
@@ -501,7 +626,7 @@ function applyThumbnailSize(panel) {
     svg?.style.setProperty('height', `${panel.iconSize}px`, 'important');
   });
 }
-async function loadThumbnailImages(side) {
+async function loadThumbnailImages(side, generation) {
   const panel = panels[side];
   const tiles = [...panel.element.querySelectorAll('.icon-tile')].filter((tile) => {
     const entry = panel.entries[Number(tile.dataset.entry)];
@@ -509,12 +634,13 @@ async function loadThumbnailImages(side) {
   });
   let nextIndex = 0;
   const loadNext = async () => {
-    while (nextIndex < tiles.length) {
+    while (nextIndex < tiles.length && panel.thumbnailGeneration === generation) {
       const tile = tiles[nextIndex++];
       const entry = panel.entries[Number(tile.dataset.entry)];
-      if (!entry) continue;
+      if (!entry || !tile.isConnected) continue;
       try {
         const dataUrl = await window.fileManager.thumbnail(entry.path, preferences.thumbnailCachePath);
+        if (panel.thumbnailGeneration !== generation) return;
         const visual = tile.querySelector('.tile-visual');
         if (!dataUrl || !visual?.isConnected || !tile.isConnected) continue;
         const thumbnail = document.createElement('img');
@@ -826,6 +952,8 @@ async function createFolder(side) {
 function bindPanel(side) {
   const panel = panels[side];
   const element = panel.element;
+  bindDriveButtons(side);
+  element.querySelector('.path-home')?.addEventListener('click', () => navigate(side, undefined));
   element.querySelector('.pathbar')?.addEventListener('click', (event) => {
     if (event.target === event.currentTarget) editPanelPath(side);
   });
@@ -902,7 +1030,10 @@ function bindPanel(side) {
     grip.addEventListener('pointercancel', finishResize);
   });
   element.querySelectorAll('[data-action="up"]').forEach((button) => button.addEventListener('click', () => navigate(side, pathParts(panel.path).length > 1 ? pathParts(panel.path).at(-2).path : panel.path)));
-  element.querySelectorAll('[data-action="refresh"]').forEach((button) => button.addEventListener('click', () => navigate(side, panel.path)));
+  element.querySelectorAll('[data-action="refresh"]').forEach((button) => button.addEventListener('click', () => {
+    navigate(side, panel.path);
+    refreshDetectedDrives();
+  }));
   element.querySelector('[data-action="match-other"]')?.addEventListener('click', () => {
     const otherSide = side === 'left' ? 'right' : 'left';
     if (panels[otherSide].path) navigate(side, panels[otherSide].path);
@@ -1443,6 +1574,7 @@ settingsContent.addEventListener('click', async (event) => {
 
 async function initialize() {
   const home = await window.fileManager.list(undefined).catch(() => null);
+  refreshDetectedDrives();
   const start = home?.path || 'C:\\';
   const docs = `${start.replace(/[\\/]$/, '')}${start.includes('\\') ? '\\' : '/'}Documents`;
   const savedLeft = typeof savedLayout.left?.path === 'string' ? savedLayout.left.path : null;
@@ -1457,6 +1589,7 @@ async function initialize() {
   persistLayout();
 }
 initialize();
+window.addEventListener('focus', refreshDetectedDrives);
 
 document.querySelectorAll('.menu-trigger').forEach((trigger) => {
   trigger.addEventListener('click', () => {

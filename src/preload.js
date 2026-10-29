@@ -3,6 +3,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('fileManager', {
   versionInfo: () => ipcRenderer.invoke('app:version-info'),
   roots: () => ipcRenderer.invoke('fs:roots'),
+  ejectDrive: (driveRoot) => ipcRenderer.invoke('fs:eject-drive', driveRoot),
+  onRestoreDirectoryWatch: (callback) => {
+    const listener = (_event, request) => callback(request);
+    ipcRenderer.on('fs:restore-directory-watch', listener);
+    return () => ipcRenderer.removeListener('fs:restore-directory-watch', listener);
+  },
   watchDirectory: (side, directory) => ipcRenderer.invoke('fs:watch-directory', { side, directory }),
   onDirectoryChanged: (callback) => {
     const listener = (_event, change) => callback(change);

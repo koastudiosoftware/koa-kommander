@@ -90,6 +90,25 @@ function savePreferences() {
   localStorage.setItem('koa-settings', JSON.stringify(preferences));
   document.documentElement.dataset.theme = preferences.theme;
 }
+window.addEventListener('storage', (event) => {
+  if (event.key !== 'koa-settings') return;
+  try {
+    savedPreferences = event.newValue ? JSON.parse(event.newValue) : {};
+    preferences = { ...defaultPreferences, ...savedPreferences };
+    if (typeof preferences.thumbnailCachePath !== 'string') preferences.thumbnailCachePath = '';
+    if (!['manual', 'alphabetical'].includes(preferences.directorySetSort)) preferences.directorySetSort = 'manual';
+    if (!Array.isArray(savedPreferences.directorySets)) {
+      preferences.directorySets = (savedPreferences.bookmarks || []).map((directory) => ({ type: 'single', path: directory, openIn: 'active', name: '' }));
+    }
+    delete preferences.bookmarks;
+    document.documentElement.dataset.theme = preferences.theme;
+    if (layoutInitialized) {
+      renderPanel('left');
+      renderPanel('right');
+    }
+    if (!settingsBackdrop.hidden && !directorySetDraft) renderSettingsCategory();
+  } catch { /* Keep the current window usable if another instance writes malformed settings. */ }
+});
 savePreferences();
 
 const icon = (name) => {

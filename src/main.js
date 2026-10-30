@@ -6,6 +6,10 @@ const { watch } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile, execFileSync } = require('node:child_process');
+const windowsAppId = 'com.koastudio.koakommander';
+if (process.platform === 'win32') app.setAppUserModelId(windowsAppId);
+app.setPath('userData', path.join(app.getPath('appData'), app.getName()));
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const directoryWatchers = new Map();
 const activeSearches = new Map();
 const activeFolderSizeScans = new Map();
@@ -185,13 +189,14 @@ ipcMain.handle('app:version-info', () => {
 
 function createWindow() {
   const windowState = readWindowState();
+  const windowIcon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'koa-kommander-icon.png'));
   const win = new BrowserWindow({
     width: windowState.width,
     height: windowState.height,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#f4f6f8',
-    icon: path.join(__dirname, 'assets', 'koa-studio-logo.ico'),
+    icon: windowIcon,
     title: 'Koa Kommander',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -200,6 +205,15 @@ function createWindow() {
       sandbox: true
     }
   });
+  if (process.platform === 'win32') {
+    win.setIcon(windowIcon);
+    win.setAppDetails({
+      appId: windowsAppId,
+      appIconPath: path.join(__dirname, 'assets', 'koa-kommander-icon.ico'),
+      relaunchCommand: `"${process.execPath}" "${app.getAppPath()}"`,
+      relaunchDisplayName: 'Koa Kommander'
+    });
+  }
 
   let saveTimer;
   const scheduleSave = () => {
@@ -218,6 +232,7 @@ function createWindow() {
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.once('destroyed', () => closeWindowWatchers(win.webContents.id));
+  return win;
 }
 
 function fileInfo(entry, parent) {
@@ -720,15 +735,25 @@ ipcMain.handle('fs:rename', async (_event, { source: rawSource, name: rawName })
   await fs.rename(source, destination);
   return destination;
 });
-app.whenReady().then(() => {
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = createWindow();
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
   });
-});
+  app.whenReady().then(() => {
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+}
 
 
